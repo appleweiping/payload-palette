@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="360" viewBox="0 0 760 360">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#64748b"/>
+    </marker>
+    <style>
+      .title { font: 700 24px system-ui, sans-serif; fill: #f8fafc; }
+      .subtitle { font: 14px system-ui, sans-serif; fill: #94a3b8; }
+      .kind { font: 700 17px system-ui, sans-serif; fill: #f8fafc; }
+      .meta { font: 13px ui-monospace, monospace; fill: #cbd5e1; }
+      .hash { font: 12px ui-monospace, monospace; fill: #94a3b8; }
+    </style>
+  </defs>
+  <rect width="760" height="360" rx="20" fill="#0b1120"/>
+  <text x="36" y="50" class="title">Payload Palette &#183; normalized request</text>
+  <text x="36" y="78" class="subtitle">Original order retained &#183; binary data omitted &#183; fingerprints computed</text>
+  <rect x="36" y="96" width="688" height="1" fill="#253148"/>
+  <rect x="36" y="142" width="188" height="126" rx="14" fill="#172033" stroke="#6ee7b7" stroke-width="2"/>
+  <text x="54" y="174" class="kind">1. text</text>
+  <text x="54" y="202" class="meta">source  text</text>
+  <text x="54" y="225" class="meta">mime    text/plain</text>
+  <text x="54" y="248" class="meta">bytes   59</text>
+  <path d="M 225 205 L 252 205" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="256" y="142" width="188" height="126" rx="14" fill="#172033" stroke="#60a5fa" stroke-width="2"/>
+  <text x="274" y="174" class="kind">2. image</text>
+  <text x="274" y="202" class="meta">source  inline</text>
+  <text x="274" y="225" class="meta">mime    image/png</text>
+  <text x="274" y="248" class="meta">bytes   68</text>
+  <path d="M 445 205 L 472 205" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+  <rect x="476" y="142" width="188" height="126" rx="14" fill="#172033" stroke="#c084fc" stroke-width="2"/>
+  <text x="494" y="174" class="kind">3. audio</text>
+  <text x="494" y="202" class="meta">source  inline</text>
+  <text x="494" y="225" class="meta">mime    audio/wav</text>
+  <text x="494" y="248" class="meta">bytes   44</text>
+  <text x="36" y="312" class="hash">sha256:440c5a289c01c86c9420625246ee9cf66cdc7cbb7c8fe94c368cffb83a2440ca</text>
+</svg>

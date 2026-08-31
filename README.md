@@ -1,0 +1,354 @@
+# Payload Palette
+
+**A dependency-free Python toolkit for validating and normalizing ordered multimodal request payloads before they reach a model server.**
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
+[![CI](https://github.com/appleweiping/payload-palette/actions/workflows/ci.yml/badge.svg)](https://github.com/appleweiping/payload-palette/actions/workflows/ci.yml)
+
+Multimodal endpoints often receive a mixture of text, images, audio, and video. The same media may arrive as a data URL, bare Base64, or remote URL, while each transport has different failure and security modes. Payload Palette turns those variations into one deterministic manifest without fetching remote resources or retaining inline binary data.
+
+![Three ordered parts normalized into a safe manifest](docs/demo.svg)
+
+The visualization above is generated from [`examples/request.json`](examples/request.json). Its exact machine-readable result is checked in as [`examples/manifest.json`](examples/manifest.json) and verified in CI.
+
+## Why use it?
+
+A model adapter should not also have to answer all of these questions:
+
+- Did decoding 14 MB of Base64 silently create a 10 MB image or a 200 MB input?
+- Does an `image_url` point to an approved public host, localhost, or a URL containing credentials?
+- Does a claimed `image/jpeg` payload begin with a PNG signature?
+- Did normalization reorder a prompt's image and text parts?
+- Can logs correlate repeated content without recording binary media or signed URL queries?
+- Can an API return a stable error code and the most specific available source JSON path?
+
+Payload Palette establishes that boundary once. It is useful at API ingress, before queueing work, in offline dataset checks, and in tests for model-specific adapters.
+
+## Features
+
+- Preserves the original order of `text`, `image`, `audio`, and `video` parts.
+- Accepts a direct content array, a `{ "content": [...] }` envelope, a single typed part, or `messages[].content` arrays.
+- Supports base64 data URLs and strict padded or unpadded standard Base64, with encoded-length and
+  whitespace-amplification bounds before allocation and decoding.
+- Bounds data URL headers before parameter parsing and checks MIME policy before Base64 decoding.
+- Rejects duplicate JSON keys, non-standard numeric constants, excessive nesting, and isolated
+  Unicode surrogates.
+- Rejects remote URLs by default. Exact hosts and explicit subdomain wildcards can be allowlisted.
+- Caps each remote URL at 16,384 characters before URL parsing or canonicalization.
+- Never performs DNS resolution, HTTP requests, file reads from payload values, or media transcoding.
+- Enforces allowed MIME types, per-kind decoded sizes, total inline size, text length, and part count.
+- Bounds CLI input bytes before JSON parsing and applies hard ceilings to configurable policies.
+- Compares recognizable PNG, JPEG, GIF, WebP, WAV, MP3, Ogg, FLAC, MP4, and WebM signatures to declarations.
+- Produces SHA-256 fingerprints for every part and the complete ordered manifest.
+- Removes inline binary content and redacts remote URL queries in manifest output by default.
+- Returns structured errors with stable codes, JSON paths, messages, and optional remediation hints.
+- Writes manifest files through same-directory atomic replacement and reports stdout failures cleanly.
+- Includes a typed Python API and `validate` / `normalize` CLI commands.
+- Has no runtime dependencies.
+
+## Installation
+
+Payload Palette requires Python 3.11 or later.
+
+Install from a checkout:
+
+```bash
+git clone https://github.com/appleweiping/payload-palette.git
+cd payload-palette
+python -m venv .venv
+source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install .
+```
+
+For development tools, use the `dev` extra instead:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+## Quick start
+
+Validate the included request:
+
+```bash
+payload-palette validate examples/request.json
+```
+
+```json
+{
+  "valid": true,
+  "fingerprint": "sha256:440c5a289c01c86c9420625246ee9cf66cdc7cbb7c8fe94c368cffb83a2440ca",
+  "part_count": 3,
+  "inline_bytes": 171
+}
+```
+
+Write the normalized manifest:
+
+```bash
+payload-palette normalize examples/request.json -o manifest.json
+```
+
+Standard input and output are supported with `-`:
+
+```bash
+echo '[{"type":"text","text":"hello"}]' | payload-palette normalize - --compact
+```
+
+## Accepted input contract
+
+The parser deliberately accepts a compact set of representations rather than guessing arbitrary vendor schemas.
+
+| Kind | Accepted type values | Primary value | Notes |
+|---|---|---|---|
+| Text | `text`, `input_text` | `text` string | UTF-8 byte length and character count are recorded. |
+| Image | `image`, `input_image`, `image_url` | `data`, `image_base64`, or `image_url.url` | Bare Base64 needs a MIME type or known `format`. |
+| Audio | `audio`, `input_audio`, `audio_url` | `data`, `input_audio.data`, or `audio_url.url` | `input_audio.format` maps common labels such as `wav` and `mp3`. |
+| Video | `video`, `input_video`, `video_url` | `data`, `video_base64`, or `video_url.url` | Remote content remains an unfetched reference. |
+
+MIME declarations can use `mime_type` or `media_type`. Data URLs carry their own MIME declaration; a conflicting outer declaration is rejected. Safe presentation metadata currently retains only string `detail` and `name` fields. Unknown fields are ignored rather than copied into the manifest.
+
+Raw JSON must follow the standard grammar: duplicate object keys, `NaN`, and positive or negative
+`Infinity` are rejected. Equivalent aliases may be repeated only when their MIME declarations agree;
+multiple media value fields or incompatible root envelope fields are rejected as ambiguous. Strings
+may contain any Unicode scalar value, but isolated UTF-16 surrogate code points are rejected. Text
+fingerprints cover exact UTF-8 bytes—Payload Palette intentionally does not apply NFC/NFKC or other
+semantic text normalization.
+
+### Example request
+
+```json
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "What is shown?"},
+        {
+          "type": "image_url",
+          "image_url": {"url": "data:image/png;base64,iVBORw0K..."},
+          "detail": "high"
+        },
+        {
+          "type": "input_audio",
+          "input_audio": {"data": "UklGRiQ...", "format": "wav"}
+        }
+      ]
+    }
+  ]
+}
+```
+
+The result contains parts with ordinals `0`, `1`, and `2` in exactly that order.
+
+## CLI reference
+
+### `validate`
+
+Checks a request and prints a short JSON summary:
+
+```bash
+payload-palette validate REQUEST.json
+payload-palette validate - --json-errors
+```
+
+Exit code `0` means valid. Validation and JSON/input errors use exit code `2`. With `--json-errors`, failures are written as a structured JSON envelope to standard error.
+
+### `normalize`
+
+Validates and emits the canonical manifest:
+
+```bash
+payload-palette normalize REQUEST.json
+payload-palette normalize REQUEST.json --compact
+payload-palette normalize REQUEST.json --output MANIFEST.json
+```
+
+### Policy options
+
+Both commands accept:
+
+| Option | Meaning |
+|---|---|
+| `--allow-host cdn.example.org` | Allow one exact HTTPS host; repeat as needed. |
+| `--allow-host '*.example.org'` | Allow subdomains, but not the apex `example.org`. Quote wildcards in a shell. |
+| `--allow-http` | Permit HTTP for already allowlisted hosts. HTTPS remains the default. |
+| `--keep-url-query` | Include query strings in output. The safer default displays `[redacted]`. |
+| `--max-parts N` | Override the default 128-part limit. |
+| `--max-total-bytes N` | Override the 128 MiB total decoded inline budget. |
+| `--max-input-bytes N` | Bound UTF-8 JSON before parsing; defaults to 192 MiB with a 512 MiB hard ceiling. |
+| `--no-signature-check` | Disable best-effort signature comparison; MIME allowlists still apply. |
+
+Allowlisting only validates a reference. Payload Palette never downloads it:
+
+```bash
+payload-palette validate request.json --allow-host media.example.org
+```
+
+## Python API
+
+```python
+import json
+from pathlib import Path
+
+from payload_palette import NormalizationPolicy, RemoteURLPolicy, normalize
+
+document = json.loads(Path("request.json").read_text(encoding="utf-8"))
+policy = NormalizationPolicy(
+    max_parts=32,
+    max_total_inline_bytes=32 * 1024 * 1024,
+    remote=RemoteURLPolicy(allowed_hosts=("media.example.org", "*.assets.example.org")),
+)
+
+manifest = normalize(document, policy)
+print(manifest.fingerprint)
+print(manifest.to_dict())
+```
+
+This example assumes `request.json` is already trusted JSON. A decoded Python object cannot retain
+evidence of duplicate object keys, so applications accepting raw untrusted JSON must use a strict,
+byte-bounded decoder with the same duplicate-key, number, depth, and Unicode rules as the CLI.
+
+For non-exception control flow, `validate` returns a tuple of issues:
+
+```python
+from payload_palette import validate
+
+issues = validate([{"type": "image", "data": "%%%", "mime_type": "image/png"}])
+for issue in issues:
+    print(issue.code, issue.path, issue.message)
+```
+
+Custom per-kind size and MIME mappings can be passed to `NormalizationPolicy`; the `text` MIME rule
+applies to the fixed `text/plain` representation as well. Limits must be real
+Python integers—not booleans, floats, `NaN`, or infinity—and stay within the hard ceilings exported
+from `payload_palette.policy`. Mapping keys are checked exactly, MIME values must already be
+normalized, and all mappings are copied into immutable views so caller mutation cannot change a
+running policy.
+
+## Manifest format
+
+The top-level manifest contains:
+
+- `schema_version`: currently `1.0`;
+- `fingerprint`: SHA-256 of the canonical ordered part descriptions;
+- `part_count` and `inline_bytes` resource summaries;
+- `parts`: safe normalized entries in input order.
+
+Each part records its input `path`, `kind`, source class, and fingerprint. Inline media records decoded byte length and MIME type but not Base64. Text is retained because it is the semantic prompt; applications that treat prompt text as sensitive should apply their own logging redaction before persisting manifests. A remote part contains a normalized locator but no claimed byte length because nothing was fetched. Manifest shells, their part tuple, and attribute mappings are immutable snapshots; every `to_dict()` call returns a fresh mutable copy.
+
+Fingerprints identify normalized byte equality; they are not authenticity proofs. Remote fingerprints
+cover a deliberately scoped RFC 3986 canonical form, including any query that was redacted from
+display. Canonicalization lowercases scheme/IDNA host, removes a trailing host dot and default port,
+normalizes percent escapes and unreserved characters, removes dot segments, and discards fragments.
+It does not reorder query parameters, decode reserved delimiters, or Unicode-normalize paths.
+Manifest and CLI JSON writers explicitly forbid non-standard `NaN`/infinity output. Public model
+integer fields are limited to 640 decimal digits, so their documented JSON form remains serializable
+even when CPython uses its lowest configurable integer-conversion limit.
+
+## Structured errors
+
+Invalid input raises `PayloadValidationError`. Independent part failures are collected where possible:
+
+```json
+{
+  "valid": false,
+  "error_count": 1,
+  "errors": [
+    {
+      "code": "remote_url_disabled",
+      "message": "remote media references are disabled by policy",
+      "path": "$.messages[0].content[1].image_url",
+      "hint": "allow an exact host with --allow-host"
+    }
+  ]
+}
+```
+
+Treat `code` as the stable machine-facing field. Message wording may improve between compatible releases.
+
+## Security model
+
+Payload Palette assumes the entire JSON document is untrusted.
+
+### Defenses provided
+
+- Base64 is checked for impossible length and estimated decoded size before allocation, then decoded strictly.
+- Data URL headers are capped at 1,024 characters before parameter splitting; MIME denials and
+  conflicting declarations fail before Base64 decoding.
+- CLI file/stdin input is byte-bounded before parsing; JSON depth, integer digits, part collection,
+  and structural-error aggregation are also bounded.
+- Inline content is checked again after decoding and counted against a total request budget.
+- Remote media is default-deny, requires HTTP(S), rejects URL credentials, and requires an exact allowlist match.
+- Literal loopback, private, link-local, multicast, reserved, unspecified, deprecated 6to4/6a44,
+  and ambiguous legacy IPv4
+  spellings are rejected consistently across supported Python versions. URL controls, whitespace,
+  backslashes, IPv6 zone identifiers, malformed escapes, invalid host labels, and multiple trailing
+  host dots are rejected before allowlist matching.
+- URL fragments are removed and queries are redacted from output by default.
+- Known binary signatures are compared with declared MIME types.
+- Manifests omit inline media bytes and arbitrary input metadata.
+- File outputs are fully written and synchronized in the destination directory before atomic
+  replacement, so a failed write does not truncate an existing manifest.
+
+### Boundaries and downstream duties
+
+- Hostnames are not resolved. A later fetcher must defend against DNS rebinding and re-check every resolved address and redirect target.
+- Accepted media is not fully parsed, decompressed, transcoded, or scanned for malware.
+- Signature checks recognize common headers only; they do not prove a complete or valid file.
+- Remote sizes and content MIME types cannot be confirmed without fetching.
+- Text remains in the manifest and may contain secrets or personal data.
+- SHA-256 fingerprints support correlation, not trust or authorization.
+
+Do not use this library as the only control around a network fetcher or media decoder. See [SECURITY.md](SECURITY.md) for private reporting.
+
+## Architecture
+
+```text
+JSON document
+    │
+    ▼
+Envelope discovery ──► ordered part parsing ──► source classification
+                                                    │
+                      ┌─────────────────────────────┼─────────────────────────────┐
+                      ▼                             ▼                             ▼
+                 text limits              bounded inline decode          remote URL policy
+                      │                             │                             │
+                      └──────────► MIME / signature / resource checks ◄──────────┘
+                                                    │
+                                                    ▼
+                                    deterministic binary-free manifest
+```
+
+The implementation separates external-shape parsing, media decoding, policy, and manifest construction so new adapters do not weaken core security rules. Read [docs/architecture.md](docs/architecture.md) for invariants, data flow, extension points, and threat analysis.
+
+## Reproduce the demo
+
+The demo builder uses the public API and has no extra dependencies:
+
+```bash
+mkdir demo-output
+python examples/build_demo.py --output-dir demo-output
+```
+
+It writes `manifest.json` and `demo.svg`. CI compares those files byte-for-byte with the checked-in assets, preventing screenshots or documentation from drifting away from executable behavior.
+
+## Limitations and roadmap
+
+Version 0.1 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, convert URL-safe Base64, resolve local paths, mutate requests in place, or submit payloads to a model. Standard-library JSON parsing still materializes one bounded document in memory; streaming JSON/Base64 decode and opt-in adapters for additional envelopes are possible future additions, but will retain the same default-deny resource model.
+
+## Development
+
+```bash
+python -m pip install -e ".[dev]"
+python -m ruff check .
+python -m pytest --cov=payload_palette --cov-branch
+python -m build
+```
+
+Tests cover ordering, malformed envelopes, malformed Base64 and data URLs, MIME conflicts, decoded-size and aggregate budgets, URL allowlists, private addresses, query redaction, structured CLI failures, and reproducible manifests. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+
+## License
+
+Payload Palette is available under the [MIT License](LICENSE).

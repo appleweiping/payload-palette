@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "fingerprint": "sha256:440c5a289c01c86c9420625246ee9cf66cdc7cbb7c8fe94c368cffb83a2440ca",
+  "part_count": 3,
+  "inline_bytes": 171,
+  "parts": [
+    {
+      "ordinal": 0,
+      "path": "$.messages[0].content[0]",
+      "kind": "text",
+      "source": "text",
+      "fingerprint": "sha256:166caf9e46d26c9d96a58ccc5c8cd02863ecd80a17ea3a4c491355bf887f65fe",
+      "byte_length": 59,
+      "character_count": 59,
+      "mime_type": "text/plain",
+      "text": "Describe the image, then acknowledge the silent audio clip."
+    },
+    {
+      "ordinal": 1,
+      "path": "$.messages[0].content[1]",
+      "kind": "image",
+      "source": "inline",
+      "fingerprint": "sha256:431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460",
+      "byte_length": 68,
+      "mime_type": "image/png",
+      "locator": "inline",
+      "attributes": {
+        "detail": "high"
+      }
+    },
+    {
+      "ordinal": 2,
+      "path": "$.messages[0].content[2]",
+      "kind": "audio",
+      "source": "inline",
+      "fingerprint": "sha256:4f8734c5e13ac599e168cf247a51c1dd0758537ce00bf16d7fed1a3d14d07041",
+      "byte_length": 44,
+      "mime_type": "audio/wav",
+      "locator": "inline"
+    }
+  ]
+}
