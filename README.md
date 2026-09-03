@@ -209,6 +209,17 @@ print(manifest.to_dict())
 This example assumes `request.json` is already trusted JSON. A decoded Python object cannot retain
 evidence of duplicate object keys, so applications accepting raw untrusted JSON must use a strict,
 byte-bounded decoder with the same duplicate-key, number, depth, and Unicode rules as the CLI.
+For an HTTP body that is already available as bytes, use the shared ingress decoder instead:
+
+```python
+from payload_palette import normalize_json_bytes
+
+manifest = normalize_json_bytes(raw_request_body, max_input_bytes=48 * 1024 * 1024)
+```
+
+The reverse proxy and HTTP server must enforce an equal or smaller limit before buffering the body.
+See the [API ingress integration boundary](docs/ingress-integration.md) and its
+[machine-readable security policy matrix](benchmarks/security_policy_matrix.json).
 
 For non-exception control flow, `validate` returns a tuple of issues:
 
@@ -336,18 +347,49 @@ It writes `manifest.json` and `demo.svg`. CI compares those files byte-for-byte 
 
 ## Limitations and roadmap
 
-Version 0.1 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, convert URL-safe Base64, resolve local paths, mutate requests in place, or submit payloads to a model. Standard-library JSON parsing still materializes one bounded document in memory; streaming JSON/Base64 decode and opt-in adapters for additional envelopes are possible future additions, but will retain the same default-deny resource model.
+Version 0.2 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, convert URL-safe Base64, resolve local paths, mutate requests in place, or submit payloads to a model. Standard-library JSON parsing still materializes one bounded document in memory; streaming JSON/Base64 decode and opt-in adapters for additional envelopes are possible future additions, but will retain the same default-deny resource model.
+
+The repository's benchmark inputs are synthetic and its timing results characterize only the
+recorded machine. Read the [evaluation scope and research limitations](docs/research-limitations.md)
+before citing measurements. Public API, manifest, CLI, error-code, and Python support expectations
+are documented in the [compatibility policy](docs/compatibility.md).
+
+## Reproducible benchmark
+
+The dependency-free benchmark measures strict decode plus normalization for three deterministic
+synthetic request shapes. It records Python, operating system, processor description, logical CPU
+count, repeat count, latency distribution, throughput distribution, and `tracemalloc` peak memory:
+
+```bash
+python benchmarks/benchmark_ingress.py --repeats 7 --operations 250 \
+  --output benchmark-results.json
+```
+
+This is a local characterization protocol, not a universal throughput claim. Keep the generated
+JSON with deployment records and rerun it on the hardware and Python version being evaluated.
+A [reference run](benchmarks/results/reference-windows-python314.json) is checked in with complete
+environment and repeat metadata so the reporting schema and workload fingerprints are auditable.
+The runner records the Payload Palette version, caps repeats at 100 and operations per repeat at
+100,000, and atomically replaces an output file only after a complete synchronized write. Memory is
+measured in a private `tracemalloc` session; a run is rejected without stopping or resetting tracing
+when the caller already has `tracemalloc` active.
 
 ## Development
 
 ```bash
 python -m pip install -e ".[dev]"
 python -m ruff check .
+python -m ruff format --check .
 python -m pytest --cov=payload_palette --cov-branch
+python benchmarks/benchmark_ingress.py --repeats 3 --operations 2
 python -m build
 ```
 
-Tests cover ordering, malformed envelopes, malformed Base64 and data URLs, MIME conflicts, decoded-size and aggregate budgets, URL allowlists, private addresses, query redaction, structured CLI failures, and reproducible manifests. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+Tests cover ordering, malformed envelopes, malformed Base64 and data URLs, MIME conflicts, decoded-size and aggregate budgets, URL allowlists, private addresses, query redaction, structured CLI failures, and reproducible manifests. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), the [release verification guide](docs/releases.md), and [citation metadata](CITATION.cff).
+
+## Companion repositories
+
+Payload Palette is one independent part of a small multimodal tooling suite. [Frame Quorum](https://github.com/appleweiping/frame-quorum) selects auditable key frames, [Evidence Braid](https://github.com/appleweiping/evidence-braid) fuses evidence under explicit policies, [Graph Sail](https://github.com/appleweiping/graph-sail) plans heterogeneous DAGs, and [Stream Quilt](https://github.com/appleweiping/stream-quilt) aligns event streams. The repositories have separate contracts and release cycles; no runtime dependency is implied.
 
 ## License
 

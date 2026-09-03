@@ -14,7 +14,9 @@ Run the same checks as CI:
 
 ```bash
 python -m ruff check .
+python -m ruff format --check .
 python -m pytest --cov=payload_palette --cov-branch
+python benchmarks/benchmark_ingress.py --repeats 3 --operations 2
 python -m build
 ```
 
@@ -26,6 +28,9 @@ python -m build
 - Preserve part order and stable error codes unless the change is intentionally breaking.
 - Never add real secrets, private URLs, copyrighted fixtures, or large binary media.
 - Regenerate the demo with `python examples/build_demo.py --output-dir demo-output` and compare it before changing checked-in assets.
+- Describe benchmark fixtures as synthetic unless their documented provenance proves otherwise. Do
+  not commit customer traffic, credentials, or benchmark output without environment and protocol
+  metadata.
 
 ## Pull requests
 

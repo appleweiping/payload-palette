@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import sys
 import tempfile
@@ -14,13 +13,25 @@ from typing import Any, TextIO
 
 from payload_palette import __version__
 from payload_palette.errors import OutputError, PayloadValidationError, ValidationIssue
+from payload_palette.ingress import (
+    DEFAULT_MAX_INPUT_BYTES,
+    MAX_INGRESS_INPUT_BYTES,
+    _decode_json_text,
+    _too_large,
+    validate_input_limit,
+)
+from payload_palette.ingress import (
+    MAX_JSON_DEPTH as _MAX_JSON_DEPTH,
+)
+from payload_palette.ingress import (
+    MAX_JSON_INTEGER_DIGITS as _MAX_JSON_INTEGER_DIGITS,
+)
 from payload_palette.normalizer import normalize
 from payload_palette.policy import NormalizationPolicy, RemoteURLPolicy
 
-DEFAULT_MAX_INPUT_BYTES = 192 * 1024 * 1024
-MAX_CLI_INPUT_BYTES = 512 * 1024 * 1024
-MAX_JSON_DEPTH = 128
-MAX_JSON_INTEGER_DIGITS = 256
+MAX_CLI_INPUT_BYTES = MAX_INGRESS_INPUT_BYTES
+MAX_JSON_DEPTH = _MAX_JSON_DEPTH
+MAX_JSON_INTEGER_DIGITS = _MAX_JSON_INTEGER_DIGITS
 _READ_CHUNK_CHARACTERS = 64 * 1024
 
 
@@ -85,9 +96,7 @@ def _policy(args: argparse.Namespace) -> NormalizationPolicy:
 
 
 def _validate_input_limit(value: object) -> int:
-    if type(value) is not int or not 1 <= value <= MAX_CLI_INPUT_BYTES:
-        raise ValueError(f"max_input_bytes must be between 1 and {MAX_CLI_INPUT_BYTES}")
-    return value
+    return validate_input_limit(value)
 
 
 def _read_json(path: str, stdin: TextIO, max_input_bytes: int = DEFAULT_MAX_INPUT_BYTES) -> Any:
@@ -106,29 +115,7 @@ def _read_json(path: str, stdin: TextIO, max_input_bytes: int = DEFAULT_MAX_INPU
         raise PayloadValidationError(
             [ValidationIssue("input_read", f"cannot read input: {exc}", path)]
         ) from exc
-    _check_json_depth(text)
-    try:
-        document = json.loads(
-            text,
-            object_pairs_hook=_unique_json_object,
-            parse_constant=_reject_json_constant,
-            parse_float=_finite_json_float,
-            parse_int=_bounded_json_int,
-        )
-    except PayloadValidationError:
-        raise
-    except (json.JSONDecodeError, RecursionError, ValueError) as exc:
-        location = (
-            f" at line {exc.lineno}, column {exc.colno}"
-            if isinstance(exc, json.JSONDecodeError)
-            else ""
-        )
-        message = exc.msg if isinstance(exc, json.JSONDecodeError) else str(exc)
-        raise PayloadValidationError(
-            [ValidationIssue("invalid_json", f"invalid JSON{location}: {message}", "$")]
-        ) from exc
-    _validate_json_unicode(document)
-    return document
+    return _decode_json_text(text)
 
 
 def _read_stream_bounded(stream: TextIO, maximum: int) -> str:
@@ -159,120 +146,8 @@ def _read_file_bounded(path: Path, maximum: int) -> str:
     with path.open("rb") as stream:
         payload = stream.read(maximum + 1)
     if len(payload) > maximum:
-        raise PayloadValidationError(
-            [
-                ValidationIssue(
-                    "input_too_large",
-                    f"JSON input exceeds the {maximum}-byte limit",
-                    str(path),
-                )
-            ]
-        )
+        raise _too_large(maximum, str(path))
     return payload.decode("utf-8")
-
-
-def _check_json_depth(text: str) -> None:
-    depth = 0
-    in_string = False
-    escaped = False
-    for character in text:
-        if in_string:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                in_string = False
-            continue
-        if character == '"':
-            in_string = True
-        elif character in "[{":
-            depth += 1
-            if depth > MAX_JSON_DEPTH:
-                raise PayloadValidationError(
-                    [
-                        ValidationIssue(
-                            "json_too_deep",
-                            f"JSON nesting exceeds the {MAX_JSON_DEPTH}-level limit",
-                            "$",
-                        )
-                    ]
-                )
-        elif character in "]}":
-            depth = max(depth - 1, 0)
-
-
-def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise PayloadValidationError(
-                [
-                    ValidationIssue(
-                        "duplicate_json_key",
-                        f"JSON object contains duplicate key {key!r}",
-                        "$",
-                    )
-                ]
-            )
-        result[key] = value
-    return result
-
-
-def _reject_json_constant(value: str) -> Any:
-    raise PayloadValidationError(
-        [
-            ValidationIssue(
-                "nonstandard_json_number",
-                f"JSON contains non-standard numeric constant {value!r}",
-                "$",
-            )
-        ]
-    )
-
-
-def _finite_json_float(value: str) -> float:
-    parsed = float(value)
-    if not math.isfinite(parsed):
-        raise PayloadValidationError(
-            [ValidationIssue("json_number_range", "JSON number is outside the finite range", "$")]
-        )
-    return parsed
-
-
-def _bounded_json_int(value: str) -> int:
-    if len(value.lstrip("-")) > MAX_JSON_INTEGER_DIGITS:
-        raise PayloadValidationError(
-            [
-                ValidationIssue(
-                    "json_number_range",
-                    f"JSON integer exceeds {MAX_JSON_INTEGER_DIGITS} digits",
-                    "$",
-                )
-            ]
-        )
-    return int(value)
-
-
-def _validate_json_unicode(document: Any) -> None:
-    if isinstance(document, str):
-        if any(0xD800 <= ord(character) <= 0xDFFF for character in document):
-            raise PayloadValidationError(
-                [
-                    ValidationIssue(
-                        "invalid_unicode",
-                        "JSON contains an isolated Unicode surrogate code point",
-                        "$",
-                    )
-                ]
-            )
-    elif isinstance(document, list):
-        for value in document:
-            _validate_json_unicode(value)
-    elif isinstance(document, dict):
-        for key, value in document.items():
-            _validate_json_unicode(key)
-            _validate_json_unicode(value)
 
 
 def _json_encoder(compact: bool, ensure_ascii: bool) -> json.JSONEncoder:

@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "scope": "Payload Palette ingress validation before any network fetch, structured media/container parsing, decompression, transcoding, or model decode",
+  "configuration_compatibility": [
+    {
+      "profile": "default_strict",
+      "allowed_hosts": [],
+      "require_https": true,
+      "redact_query": true,
+      "verify_known_signatures": true,
+      "remote_reference_result": "rejected"
+    },
+    {
+      "profile": "exact_host_https",
+      "allowed_hosts": ["media.example.org"],
+      "require_https": true,
+      "redact_query": true,
+      "verify_known_signatures": true,
+      "remote_reference_result": "only an exact HTTPS host match is accepted; no fetch occurs"
+    },
+    {
+      "profile": "explicit_subdomains_https",
+      "allowed_hosts": ["*.example.org"],
+      "require_https": true,
+      "redact_query": true,
+      "verify_known_signatures": true,
+      "remote_reference_result": "subdomains are accepted; the apex is not; no fetch occurs"
+    },
+    {
+      "profile": "http_opt_in",
+      "allowed_hosts": ["media.example.org"],
+      "require_https": false,
+      "redact_query": true,
+      "verify_known_signatures": true,
+      "remote_reference_result": "HTTP is accepted only for the allowlisted host; no fetch occurs"
+    },
+    {
+      "profile": "diagnostic_query_retention",
+      "allowed_hosts": ["media.example.org"],
+      "require_https": true,
+      "redact_query": false,
+      "verify_known_signatures": true,
+      "remote_reference_result": "query appears in output and can disclose credentials"
+    },
+    {
+      "profile": "signature_check_disabled",
+      "allowed_hosts": [],
+      "require_https": true,
+      "redact_query": true,
+      "verify_known_signatures": false,
+      "remote_reference_result": "remote references remain rejected; inline MIME allowlists still apply"
+    }
+  ],
+  "rows": [
+    {
+      "threat": "Oversized HTTP request body",
+      "library_control": "decode_json_bytes checks a configured byte ceiling before copying or UTF-8 decoding",
+      "default": "192 MiB library ceiling",
+      "deployment_control": "Configure the reverse proxy and HTTP framework to reject the body before buffering"
+    },
+    {
+      "threat": "Duplicate keys, non-finite numbers, excessive nesting, or invalid Unicode",
+      "library_control": "Strict JSON decoding rejects the document with a stable validation code",
+      "default": "Enabled",
+      "deployment_control": "Pass raw bytes to decode_json_bytes; do not pre-decode with a permissive parser"
+    },
+    {
+      "threat": "Private-network or ambiguous literal destination",
+      "library_control": "Stable explicit address classification plus default-deny host allowlisting",
+      "default": "Rejected",
+      "deployment_control": "Resolve and pin addresses, re-check every redirect, and defend against DNS rebinding"
+    },
+    {
+      "threat": "Remote HTTP downgrade",
+      "library_control": "HTTPS required for allowlisted hosts",
+      "default": "Rejected",
+      "deployment_control": "Keep TLS verification enabled in the downstream fetcher"
+    },
+    {
+      "threat": "Signed URL or credential leakage in a manifest",
+      "library_control": "User-info is rejected and URL queries are redacted from display",
+      "default": "Redacted",
+      "deployment_control": "Treat fingerprints and retained prompt text as potentially sensitive log data"
+    },
+    {
+      "threat": "MIME confusion or malicious container content",
+      "library_control": "Allowlist and best-effort common signature comparison",
+      "default": "Enabled",
+      "deployment_control": "Fully parse, size, sandbox, and malware-scan media before model decode"
+    },
+    {
+      "threat": "Compressed request expansion",
+      "library_control": "Outside scope because ingress accepts an already-decoded body",
+      "default": "Not provided",
+      "deployment_control": "Disable request decompression or cap compressed and expanded byte counts"
+    },
+    {
+      "threat": "Request smuggling, header ambiguity, or authentication bypass",
+      "library_control": "Outside the payload contract",
+      "default": "Not provided",
+      "deployment_control": "Enforce at a maintained HTTP server/gateway before calling the library"
+    }
+  ]
+}

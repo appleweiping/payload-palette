@@ -4,6 +4,17 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-01
+
+### Added
+
+- A public, bounded raw-bytes ingress adapter shared with the CLI's strict JSON contract.
+- A machine-readable security responsibility matrix and API integration guidance.
+- An environment-qualified synthetic throughput/resource benchmark and benchmark tests.
+- Version compatibility, research limitations, and contribution governance templates.
+- Stable falsey-policy, released-memoryview, benchmark tracing, bounded protocol, atomic-output,
+  and reference-result validation semantics.
+
 ### Planned
 
 - Optional adapters for additional request envelopes.

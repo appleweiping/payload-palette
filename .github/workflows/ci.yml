@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
@@ -28,8 +32,10 @@ jobs:
           - os: windows-latest
             python-version: "3.14"
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -43,5 +49,20 @@ jobs:
         run: python -m pytest --cov=payload_palette --cov-branch --cov-report=term-missing
       - name: Verify generated demo
         run: python examples/build_demo.py --output-dir demo-output --check
+      - name: Smoke-test benchmark protocol
+        if: matrix.python-version == '3.14'
+        run: python benchmarks/benchmark_ingress.py --repeats 3 --operations 2 --output benchmark-output.json
       - name: Build distributions
         run: python -m build
+
+  gate:
+    name: CI gate
+    if: ${{ always() }}
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require every matrix job to succeed
+        env:
+          MATRIX_RESULT: ${{ needs.test.result }}
+        run: test "${MATRIX_RESULT}" = success

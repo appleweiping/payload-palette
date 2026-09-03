@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a reproducible contract or implementation defect
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Remove secrets, signed URLs, personal data, and proprietary media before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options: [Python API, CLI, manifest contract, URL policy, media validation, documentation]
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal sanitized reproducer
+      description: Include the command or Python call and the smallest safe payload.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and observed behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Security check
+      options:
+        - label: This report does not disclose a security vulnerability; I will use a private advisory if it does.
+          required: true

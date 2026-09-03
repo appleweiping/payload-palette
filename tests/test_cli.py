@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from payload_palette import __version__
 from payload_palette.cli import (
     MAX_CLI_INPUT_BYTES,
     MAX_JSON_DEPTH,
@@ -14,6 +15,13 @@ from payload_palette.cli import (
     run,
 )
 from payload_palette.errors import OutputError
+
+
+def test_cli_reports_package_version(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as error:
+        run(["--version"])
+    assert error.value.code == 0
+    assert capsys.readouterr().out == f"payload-palette {__version__}\n"
 
 
 def test_validate_stdin() -> None:

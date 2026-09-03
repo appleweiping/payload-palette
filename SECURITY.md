@@ -26,6 +26,11 @@ object. URL validation rejects syntactically ambiguous local-address spellings, 
 fetchers must still resolve, pin, and re-check every address and redirect to defend against DNS
 rebinding.
 
+Programmatic HTTP integrations should pass raw bytes through `decode_json_bytes()` or
+`normalize_json_bytes()` so strict JSON checks are not lost. Server-side limits and the split of
+responsibilities are documented in [API ingress integration](docs/ingress-integration.md) and the
+[security policy matrix](benchmarks/security_policy_matrix.json).
+
 Data URL headers are bounded before parameter parsing, and MIME allowlists or declaration conflicts
 are evaluated before Base64 decoding. Public manifest count fields remain JSON-serializable at
 CPython's minimum configurable integer-conversion limit. CLI file output uses a same-directory

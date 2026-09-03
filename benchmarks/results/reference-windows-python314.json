@@ -1,0 +1,82 @@
+{
+  "dataset": {
+    "generator": "benchmarks/benchmark_ingress.py::_workloads",
+    "kind": "synthetic",
+    "random_seed": null
+  },
+  "environment": {
+    "logical_cpu_count": 16,
+    "machine": "AMD64",
+    "operating_system": "Windows-11-10.0.26200-SP0",
+    "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "python": "3.14.5",
+    "python_implementation": "CPython"
+  },
+  "interpretation": "Measurements characterize this recorded environment only; rerun on target hardware.",
+  "measured_at": "2026-09-03T09:15:29.571794Z",
+  "protocol": {
+    "memory_probe": "isolated tracemalloc session for one operation; run is rejected if tracing is already active",
+    "operations_per_repeat": 100,
+    "repeats": 7,
+    "timer": "time.perf_counter",
+    "warmup_operations": 2
+  },
+  "schema_version": 1,
+  "software": {
+    "name": "payload-palette",
+    "version": "0.2.0"
+  },
+  "workloads": {
+    "mixed_inline_parts": {
+      "input_bytes": 212,
+      "input_sha256": "86b21a985bf3f5a7cde29b66a6f9bade59c8e999de90103d1cd9a6297db22447",
+      "latency_us_per_operation": {
+        "max": 304.099,
+        "median": 257.99,
+        "min": 244.807,
+        "p95": 297.355
+      },
+      "manifest_fingerprint": "sha256:b09cde4019f25b919606622f616db6fd3ac2ac41c4030a8c3f72f1144684ee57",
+      "throughput_operations_per_second": {
+        "max": 4084.851,
+        "median": 3876.119,
+        "min": 3288.403
+      },
+      "tracemalloc_peak_bytes_one_operation": 7572
+    },
+    "one_hundred_text_parts": {
+      "input_bytes": 4701,
+      "input_sha256": "eb6221aed7cf03760b5b8d6072ee0c00b71e08c2085719f9aa5aa6db4f5459f8",
+      "latency_us_per_operation": {
+        "max": 8202.153,
+        "median": 4680.866,
+        "min": 4125.332,
+        "p95": 8112.703
+      },
+      "manifest_fingerprint": "sha256:4acda516271aa519eb0eba0f394796d0ab9fb7a1b0f1bb60aa4bf540ec5610a7",
+      "throughput_operations_per_second": {
+        "max": 242.405,
+        "median": 213.636,
+        "min": 121.919
+      },
+      "tracemalloc_peak_bytes_one_operation": 159797
+    },
+    "one_text_part": {
+      "input_bytes": 58,
+      "input_sha256": "b81b331945b0ffbb473ec6f7a27b7b9048957d22c7e178d20af0b83be07d3402",
+      "latency_us_per_operation": {
+        "max": 125.887,
+        "median": 111.083,
+        "min": 102.166,
+        "p95": 124.123
+      },
+      "manifest_fingerprint": "sha256:421876b4a4fb5a344be3608aa948a794b767b8eb9698290ef0abe7a4bbe9bee1",
+      "throughput_operations_per_second": {
+        "max": 9787.992,
+        "median": 9002.278,
+        "min": 7943.632
+      },
+      "tracemalloc_peak_bytes_one_operation": 4944
+    }
+  }
+}
