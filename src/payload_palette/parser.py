@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeGuard, cast
 
 from payload_palette.errors import PayloadValidationError, ValidationIssue, problem
 from payload_palette.media import mime_from_format, normalize_mime_type
@@ -32,7 +32,7 @@ class _DirectMessageText:
     value: str
 
 
-def _is_array(value: Any) -> bool:
+def _is_array(value: Any) -> TypeGuard[Sequence[Any]]:
     return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
 
 

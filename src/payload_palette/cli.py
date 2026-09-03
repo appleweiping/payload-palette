@@ -9,7 +9,7 @@ import sys
 import tempfile
 from contextlib import suppress
 from pathlib import Path
-from typing import Any, TextIO
+from typing import IO, Any, TextIO
 
 from payload_palette import __version__
 from payload_palette.errors import OutputError, PayloadValidationError, ValidationIssue
@@ -161,7 +161,7 @@ def _json_encoder(compact: bool, ensure_ascii: bool) -> json.JSONEncoder:
     )
 
 
-def _write_json(value: Any, stream: TextIO, compact: bool = False) -> None:
+def _write_json(value: Any, stream: IO[str], compact: bool = False) -> None:
     encoder = _json_encoder(compact, ensure_ascii=False)
     encoding = getattr(stream, "encoding", None)
     try:
