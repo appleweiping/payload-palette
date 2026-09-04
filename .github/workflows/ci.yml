@@ -47,6 +47,8 @@ jobs:
         run: python -m ruff format --check .
       - name: Type check
         run: python -m mypy
+      - name: Security scan
+        run: python -m bandit -q -c pyproject.toml -r src
       - name: Test with branch coverage
         run: python -m pytest --cov=payload_palette --cov-branch --cov-report=term-missing
       - name: Verify generated demo

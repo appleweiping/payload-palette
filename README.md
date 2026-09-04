@@ -5,6 +5,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
 [![CI](https://github.com/appleweiping/payload-palette/actions/workflows/ci.yml/badge.svg)](https://github.com/appleweiping/payload-palette/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/appleweiping/payload-palette/actions/workflows/codeql.yml/badge.svg)](https://github.com/appleweiping/payload-palette/actions/workflows/codeql.yml)
 
 Multimodal endpoints often receive a mixture of text, images, audio, and video. The same media may arrive as a data URL, bare Base64, or remote URL, while each transport has different failure and security modes. Payload Palette turns those variations into one deterministic manifest without fetching remote resources or retaining inline binary data.
 
