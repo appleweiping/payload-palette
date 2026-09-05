@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from typing import Any
 
 from payload_palette.errors import PayloadValidationError, ValidationIssue, problem
 from payload_palette.media import (
+    SIGNATURE_PREFIX_BYTES,
     decode_base64,
     detect_mime_type,
     normalize_mime_type,
@@ -17,9 +19,55 @@ from payload_palette.models import Manifest, NormalizedPart, PartSpec
 from payload_palette.parser import parse_document
 from payload_palette.policy import NormalizationPolicy
 
+_FINGERPRINT_PREFIX = "sha256:"
+
 
 def _sha256(value: bytes) -> str:
-    return f"sha256:{hashlib.sha256(value).hexdigest()}"
+    return f"{_FINGERPRINT_PREFIX}{hashlib.sha256(value).hexdigest()}"
+
+
+@dataclass(frozen=True, slots=True)
+class _InlineSummary:
+    """Everything a manifest records about inline media, without its bytes."""
+
+    byte_length: int
+    fingerprint: str
+    signature_prefix: bytes
+
+
+def _summarize_inline(
+    encoded: str, path: str, max_bytes: int, policy: NormalizationPolicy
+) -> _InlineSummary:
+    """Decode inline Base64 in bounded blocks without retaining the payload.
+
+    A manifest needs only the decoded size, its digest, and the leading
+    signature bytes, so each block is folded into those three values and then
+    released instead of being accumulated into one large buffer.
+    """
+
+    digest = hashlib.sha256()
+    prefix = bytearray()
+    byte_length = 0
+
+    def absorb(block: bytes) -> None:
+        nonlocal byte_length
+        digest.update(block)
+        byte_length += len(block)
+        if len(prefix) < SIGNATURE_PREFIX_BYTES:
+            prefix.extend(block[: SIGNATURE_PREFIX_BYTES - len(prefix)])
+
+    decode_base64(
+        encoded,
+        path,
+        max_bytes,
+        allow_url_safe=policy.allow_url_safe_base64,
+        sink=absorb,
+    )
+    return _InlineSummary(
+        byte_length=byte_length,
+        fingerprint=f"{_FINGERPRINT_PREFIX}{digest.hexdigest()}",
+        signature_prefix=bytes(prefix),
+    )
 
 
 def _normalize_text(part: PartSpec, policy: NormalizationPolicy) -> NormalizedPart:
@@ -61,15 +109,15 @@ def _normalize_inline(part: PartSpec, policy: NormalizationPolicy) -> Normalized
                 part.value_path,
             )
         policy.check_mime(part.kind, mime_type, part.value_path)
-        data = decode_base64(encoded, part.value_path, maximum)
+        summary = _summarize_inline(encoded, part.value_path, maximum, policy)
     else:
         if declared is None:  # parser normally prevents this; retained as an internal invariant.
             raise problem("missing_mime", "inline media requires a MIME type", part.value_path)
         mime_type = declared
         policy.check_mime(part.kind, mime_type, part.value_path)
-        data = decode_base64(part.value, part.value_path, maximum)
-    policy.check_size(part.kind, len(data), part.value_path)
-    detected = detect_mime_type(data)
+        summary = _summarize_inline(part.value, part.value_path, maximum, policy)
+    policy.check_size(part.kind, summary.byte_length, part.value_path)
+    detected = detect_mime_type(summary.signature_prefix)
     if policy.verify_known_signatures and detected is not None and detected != mime_type:
         compatible_container = (detected, mime_type) in {
             ("video/mp4", "audio/mp4"),
@@ -86,8 +134,8 @@ def _normalize_inline(part: PartSpec, policy: NormalizationPolicy) -> Normalized
         path=part.path,
         kind=part.kind,
         source="inline",
-        fingerprint=_sha256(data),
-        byte_length=len(data),
+        fingerprint=summary.fingerprint,
+        byte_length=summary.byte_length,
         mime_type=mime_type,
         locator="inline",
         attributes=part.attributes,

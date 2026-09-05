@@ -49,6 +49,14 @@
       "redact_query": true,
       "verify_known_signatures": false,
       "remote_reference_result": "remote references remain rejected; inline MIME allowlists still apply"
+    },
+    {
+      "profile": "url_safe_base64_opt_in",
+      "allowed_hosts": [],
+      "require_https": true,
+      "redact_query": true,
+      "verify_known_signatures": true,
+      "remote_reference_result": "remote references remain rejected; inline media may also use the RFC 4648 section 5 alphabet, but never both alphabets in one payload"
     }
   ],
   "rows": [

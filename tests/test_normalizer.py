@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import tracemalloc
 from dataclasses import replace
 
 import pytest
@@ -163,6 +165,75 @@ def test_mime_policy_and_conflicts_are_rejected_before_base64_decode(
     assert error.value.issues[0].code == code
     assert error.value.issues[0].path == path
     assert called is False
+
+
+def test_url_safe_inline_media_is_rejected_by_default(url_safe_png_base64: str) -> None:
+    with pytest.raises(PayloadValidationError) as error:
+        normalize([{"type": "image", "data": url_safe_png_base64, "mime_type": "image/png"}])
+    assert error.value.issues[0].code == "url_safe_base64_disabled"
+    assert error.value.issues[0].path == "$[0].data"
+
+
+def test_url_safe_inline_media_normalizes_identically_when_enabled(
+    url_safe_png_base64: str, standard_png_base64: str
+) -> None:
+    policy = NormalizationPolicy(allow_url_safe_base64=True)
+    url_safe = normalize(
+        [{"type": "image", "data": url_safe_png_base64, "mime_type": "image/png"}], policy
+    )
+    standard = normalize(
+        [{"type": "image", "data": standard_png_base64, "mime_type": "image/png"}], policy
+    )
+    assert url_safe.fingerprint == standard.fingerprint
+    assert url_safe.parts[0].byte_length == standard.parts[0].byte_length
+    assert url_safe.to_dict() == standard.to_dict()
+
+
+def test_url_safe_data_url_requires_the_same_opt_in(url_safe_png_base64: str) -> None:
+    document = [{"type": "image_url", "image_url": f"data:image/png;base64,{url_safe_png_base64}"}]
+    with pytest.raises(PayloadValidationError) as error:
+        normalize(document)
+    assert error.value.issues[0].code == "url_safe_base64_disabled"
+    manifest = normalize(document, NormalizationPolicy(allow_url_safe_base64=True))
+    assert manifest.parts[0].mime_type == "image/png"
+
+
+def test_mixed_base64_alphabets_are_rejected_even_when_url_safe_is_enabled(
+    url_safe_png_base64: str,
+) -> None:
+    mixed = url_safe_png_base64.replace("_", "/", 1)
+    policy = NormalizationPolicy(allow_url_safe_base64=True)
+    with pytest.raises(PayloadValidationError) as error:
+        normalize([{"type": "image", "data": mixed, "mime_type": "image/png"}], policy)
+    assert error.value.issues[0].code == "mixed_base64_alphabet"
+
+
+def test_url_safe_opt_in_does_not_relax_other_inline_rules(url_safe_png_base64: str) -> None:
+    policy = NormalizationPolicy(allow_url_safe_base64=True)
+    with pytest.raises(PayloadValidationError) as error:
+        normalize(
+            [{"type": "image", "data": url_safe_png_base64, "mime_type": "image/jpeg"}], policy
+        )
+    assert error.value.issues[0].code == "signature_mismatch"
+
+
+def test_large_inline_media_is_folded_without_holding_the_decoded_payload() -> None:
+    if tracemalloc.is_tracing():  # pragma: no cover - protects a caller-owned session
+        pytest.skip("a caller-owned tracemalloc session must not be disturbed")
+    payload = b"\x89PNG\r\n\x1a\n" + b"payload-palette-" * 262_144
+    encoded = base64.b64encode(payload).decode()
+    document = [{"type": "image", "data": encoded, "mime_type": "image/png"}]
+    tracemalloc.start()
+    try:
+        tracemalloc.reset_peak()
+        manifest = normalize(document)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    part = manifest.parts[0]
+    assert part.byte_length == len(payload)
+    assert part.fingerprint == f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    assert peak < len(payload) // 4
 
 
 def test_total_inline_limit(png_data_url: str) -> None:

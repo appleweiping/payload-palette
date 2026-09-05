@@ -32,6 +32,10 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
 - Accepts a direct content array, a `{ "content": [...] }` envelope, a single typed part, or `messages[].content` arrays.
 - Supports base64 data URLs and strict padded or unpadded standard Base64, with encoded-length and
   whitespace-amplification bounds before allocation and decoding.
+- Accepts RFC 4648 section 5 URL-safe Base64 only when explicitly enabled, and always rejects a
+  payload that mixes the two alphabets.
+- Decodes inline Base64 in bounded 64 KiB blocks and folds each block into a size, digest, and
+  signature prefix, so peak memory no longer grows with the decoded payload.
 - Bounds data URL headers before parameter parsing and checks MIME policy before Base64 decoding.
 - Rejects duplicate JSON keys, non-standard numeric constants, excessive nesting, and isolated
   Unicode surrogates.
@@ -108,6 +112,8 @@ The parser deliberately accepts a compact set of representations rather than gue
 | Audio | `audio`, `input_audio`, `audio_url` | `data`, `input_audio.data`, or `audio_url.url` | `input_audio.format` maps common labels such as `wav` and `mp3`. |
 | Video | `video`, `input_video`, `video_url` | `data`, `video_base64`, or `video_url.url` | Remote content remains an unfetched reference. |
 
+Inline media uses the standard Base64 alphabet. Payloads from JWT-adjacent and URL contexts that use the RFC 4648 section 5 `-`/`_` alphabet are rejected with `url_safe_base64_disabled` unless `allow_url_safe_base64` is enabled; a payload containing characters from both alphabets is always rejected with `mixed_base64_alphabet` because no conforming encoder produces one.
+
 MIME declarations can use `mime_type` or `media_type`. Data URLs carry their own MIME declaration; a conflicting outer declaration is rejected. Safe presentation metadata currently retains only string `detail` and `name` fields. Unknown fields are ignored rather than copied into the manifest.
 
 Raw JSON must follow the standard grammar: duplicate object keys, `NaN`, and positive or negative
@@ -180,6 +186,7 @@ Both commands accept:
 | `--max-total-bytes N` | Override the 128 MiB total decoded inline budget. |
 | `--max-input-bytes N` | Bound UTF-8 JSON before parsing; defaults to 192 MiB with a 512 MiB hard ceiling. |
 | `--no-signature-check` | Disable best-effort signature comparison; MIME allowlists still apply. |
+| `--allow-url-safe-base64` | Also accept the URL-safe `-`/`_` Base64 alphabet. Standard-only is the default. |
 
 Allowlisting only validates a reference. Payload Palette never downloads it:
 
@@ -233,7 +240,9 @@ for issue in issues:
 ```
 
 Custom per-kind size and MIME mappings can be passed to `NormalizationPolicy`; the `text` MIME rule
-applies to the fixed `text/plain` representation as well. Limits must be real
+applies to the fixed `text/plain` representation as well. `NormalizationPolicy(allow_url_safe_base64=True)`
+additionally accepts URL-safe inline Base64; it stays disabled by default so a payload cannot silently
+switch alphabets. Limits must be real
 Python integers—not booleans, floats, `NaN`, or infinity—and stay within the hard ceilings exported
 from `payload_palette.policy`. Mapping keys are checked exactly, MIME values must already be
 normalized, and all mappings are copied into immutable views so caller mutation cannot change a
@@ -248,7 +257,7 @@ The top-level manifest contains:
 - `part_count` and `inline_bytes` resource summaries;
 - `parts`: safe normalized entries in input order.
 
-Each part records its input `path`, `kind`, source class, and fingerprint. Inline media records decoded byte length and MIME type but not Base64. Text is retained because it is the semantic prompt; applications that treat prompt text as sensitive should apply their own logging redaction before persisting manifests. A remote part contains a normalized locator but no claimed byte length because nothing was fetched. Manifest shells, their part tuple, and attribute mappings are immutable snapshots; every `to_dict()` call returns a fresh mutable copy.
+Each part records its input `path`, `kind`, source class, and fingerprint. Inline media records decoded byte length and MIME type but not Base64; its bytes are hashed and measured block by block and are never retained in full. Text is retained because it is the semantic prompt; applications that treat prompt text as sensitive should apply their own logging redaction before persisting manifests. A remote part contains a normalized locator but no claimed byte length because nothing was fetched. Manifest shells, their part tuple, and attribute mappings are immutable snapshots; every `to_dict()` call returns a fresh mutable copy.
 
 Fingerprints identify normalized byte equality; they are not authenticity proofs. Remote fingerprints
 cover a deliberately scoped RFC 3986 canonical form, including any query that was redacted from
@@ -287,6 +296,10 @@ Payload Palette assumes the entire JSON document is untrusted.
 ### Defenses provided
 
 - Base64 is checked for impossible length and estimated decoded size before allocation, then decoded strictly.
+- Only one Base64 alphabet is accepted per payload, and the URL-safe alphabet requires an explicit
+  opt-in that leaves every length, padding, MIME, and size rule unchanged.
+- Inline decoding advances block by block and checks the running decoded total, so an oversized
+  payload stops partway instead of being fully materialized first.
 - Data URL headers are capped at 1,024 characters before parameter splitting; MIME denials and
   conflicting declarations fail before Base64 decoding.
 - CLI file/stdin input is byte-bounded before parsing; JSON depth, integer digits, part collection,
@@ -348,7 +361,7 @@ It writes `manifest.json` and `demo.svg`. CI compares those files byte-for-byte 
 
 ## Limitations and roadmap
 
-Version 0.2 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, convert URL-safe Base64, resolve local paths, mutate requests in place, or submit payloads to a model. Standard-library JSON parsing still materializes one bounded document in memory; streaming JSON/Base64 decode and opt-in adapters for additional envelopes are possible future additions, but will retain the same default-deny resource model.
+Version 0.2 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, resolve local paths, mutate requests in place, or submit payloads to a model. URL-safe Base64 is converted only under an explicit opt-in. Inline Base64 is decoded in bounded blocks and never held in full, but standard-library JSON parsing still materializes one bounded document in memory; streaming JSON decode and opt-in adapters for additional envelopes are possible future additions, but will retain the same default-deny resource model.
 
 The repository's benchmark inputs are synthetic and its timing results characterize only the
 recorded machine. Read the [evaluation scope and research limitations](docs/research-limitations.md)

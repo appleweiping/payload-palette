@@ -7,6 +7,9 @@ import base64
 import pytest
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"payload-palette"
+# Chosen so the standard encoding contains both "+" and "/" and the URL-safe
+# encoding therefore contains both "-" and "_".
+ALPHABET_SENSITIVE_PNG_BYTES = PNG_BYTES + b"\x00\xfb\xf0"
 WAV_BYTES = (
     b"RIFF\x24\x00\x00\x00WAVEfmt "
     b"\x10\x00\x00\x00\x01\x00\x01\x00\x40\x1f\x00\x00\x80\x3e\x00\x00"
@@ -27,3 +30,13 @@ def png_data_url(png_base64: str) -> str:
 @pytest.fixture
 def wav_base64() -> str:
     return base64.b64encode(WAV_BYTES).decode()
+
+
+@pytest.fixture
+def standard_png_base64() -> str:
+    return base64.b64encode(ALPHABET_SENSITIVE_PNG_BYTES).decode()
+
+
+@pytest.fixture
+def url_safe_png_base64() -> str:
+    return base64.urlsafe_b64encode(ALPHABET_SENSITIVE_PNG_BYTES).decode()

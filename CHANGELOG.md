@@ -4,6 +4,25 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in RFC 4648 section 5 URL-safe Base64 for inline media, through
+  `NormalizationPolicy(allow_url_safe_base64=True)`, `decode_base64(..., allow_url_safe=True)`,
+  and the `--allow-url-safe-base64` CLI flag. Decoding stays standard-only by default and the
+  opt-in changes no length, padding, MIME, signature, or size rule.
+- Stable `url_safe_base64_disabled` and `mixed_base64_alphabet` error codes. A payload that
+  contains characters from both alphabets is rejected whether or not the opt-in is enabled.
+- A bounded streaming Base64 decoder. `decode_base64(..., sink=...)` decodes in
+  `BASE64_BLOCK_CHARACTERS` blocks and hands each decoded block to the sink without retaining
+  the payload, enforcing every existing bound against the running decoded total.
+
+### Changed
+
+- Normalization now folds inline media into its byte length, SHA-256 digest, and the documented
+  `SIGNATURE_PREFIX_BYTES` signature prefix as blocks arrive, instead of holding the whole
+  decoded payload. Manifests, fingerprints, limits, and error codes are unchanged; peak traced
+  memory for a 4 MiB inline image drops from roughly 5x the decoded size to under 0.1x.
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

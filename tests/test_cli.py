@@ -400,3 +400,33 @@ def test_non_ascii_windows_compatible_paths_and_lf_output(tmp_path: Path) -> Non
     payload = output_path.read_bytes()
     assert b"\r\n" not in payload
     assert json.loads(payload.decode("utf-8"))["parts"][0]["text"] == "你好"
+
+
+def _url_safe_request(url_safe_png_base64: str) -> str:
+    return json.dumps([{"type": "image", "data": url_safe_png_base64, "mime_type": "image/png"}])
+
+
+def test_cli_rejects_url_safe_base64_without_the_flag(url_safe_png_base64: str) -> None:
+    stderr = StringIO()
+    code = run(
+        ["validate", "-", "--json-errors"],
+        stdin=StringIO(_url_safe_request(url_safe_png_base64)),
+        stdout=StringIO(),
+        stderr=stderr,
+    )
+    assert code == 2
+    error = json.loads(stderr.getvalue())["errors"][0]
+    assert error["code"] == "url_safe_base64_disabled"
+    assert "--allow-url-safe-base64" in error["hint"]
+
+
+def test_cli_accepts_url_safe_base64_with_the_flag(url_safe_png_base64: str) -> None:
+    stdout = StringIO()
+    code = run(
+        ["validate", "-", "--allow-url-safe-base64"],
+        stdin=StringIO(_url_safe_request(url_safe_png_base64)),
+        stdout=stdout,
+        stderr=StringIO(),
+    )
+    assert code == 0
+    assert json.loads(stdout.getvalue())["valid"] is True

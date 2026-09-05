@@ -76,6 +76,11 @@ def _parser() -> argparse.ArgumentParser:
             action="store_true",
             help="skip best-effort media signature comparison",
         )
+        command.add_argument(
+            "--allow-url-safe-base64",
+            action="store_true",
+            help="also accept RFC 4648 section 5 URL-safe Base64 inline media",
+        )
         command.add_argument("--json-errors", action="store_true")
     normalize_parser.add_argument("-o", "--output", default="-", help="output path or -")
     normalize_parser.add_argument("--compact", action="store_true", help="emit compact JSON")
@@ -87,6 +92,7 @@ def _policy(args: argparse.Namespace) -> NormalizationPolicy:
         max_parts=args.max_parts,
         max_total_inline_bytes=args.max_total_bytes,
         verify_known_signatures=not args.no_signature_check,
+        allow_url_safe_base64=args.allow_url_safe_base64,
         remote=RemoteURLPolicy(
             allowed_hosts=tuple(args.allow_host),
             require_https=not args.allow_http,

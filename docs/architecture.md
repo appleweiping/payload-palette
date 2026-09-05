@@ -10,7 +10,8 @@ The implementation maintains seven invariants:
 2. **No implicit I/O.** Payload strings can become text, decoded inline bytes, or validated remote references. They never become filesystem paths, DNS queries, or HTTP requests.
 3. **Parse and decode within budgets.** CLI bytes, JSON depth and integer width, flattened parts,
    data-URL header length, Base64 length, decoded bytes, and aggregate inline bytes all have explicit
-   bounds.
+   bounds. Inline Base64 is decoded one bounded block at a time and checked against the running
+   decoded total, so the working set of a decode does not scale with the payload.
 4. **Policy and output are immutable.** Policies validate exact runtime types and hard ceilings;
    caller mappings, manifest parts, and part attributes are copied into read-only values.
 5. **Output is safe to inspect, not automatically safe to persist.** Binary payloads and remote query strings are omitted, while prompt text remains visible by design.
@@ -71,11 +72,22 @@ fingerprinting. Its semantic string is retained.
 Inline media accepts a base64 data URL or bare Base64 with an explicit/inferred MIME type. Before
 extracting the encoded portion, the data-URL parser caps its header at 1,024 characters and accepts
 only one `base64` marker. MIME declarations, kind allowlists, and conflicts are checked before byte
-decoding. Before materializing a compact copy, the decoder bounds both non-whitespace encoded characters and
-whitespace amplification from the decoded-byte policy. It then removes ASCII whitespace, repairs
-only wholly omitted padding, rejects nonstandard characters, partial/excess padding, and non-zero
-padding bits, and checks the final decoded length. Recognized signatures are compared after MIME
-allowlist checks.
+decoding. Before copying anything, the decoder bounds both non-whitespace encoded characters and
+whitespace amplification from the decoded-byte policy. It then classifies the alphabet: a payload
+carrying characters from both the standard `+/` and URL-safe `-_` sets is rejected as ambiguous, and
+a URL-safe payload is rejected unless `allow_url_safe_base64` opts in, in which case it is translated
+into the standard alphabet so every later rule is shared. It removes ASCII whitespace, repairs only
+wholly omitted padding, rejects nonstandard characters, partial/excess padding, and non-zero padding
+bits, and checks the decoded length. Recognized signatures are compared after MIME allowlist checks.
+
+Decoding advances in fixed blocks of encoded characters. Because a block is a multiple of four,
+only the last one carries padding, so per-block canonical re-encoding is equivalent to checking the
+whole payload at once. Whitespace is removed per window and the remainder is carried into the next
+block, so line-wrapped payloads decode identically. A caller that passes a `sink` receives each
+decoded block and keeps nothing else; the normalizer uses that to fold inline media into its byte
+length, SHA-256 digest, and the leading `SIGNATURE_PREFIX_BYTES` bytes that signature detection
+inspects, which is everything a manifest records. Decoded media is therefore never held in full,
+and an oversized payload fails on the block that crosses the limit.
 
 Remote media passes through `RemoteURLPolicy`. Before allowlist matching, the policy rejects URL
 lengths above 16,384 characters, controls, whitespace, backslashes, malformed percent escapes and
@@ -143,7 +155,7 @@ Add an explicit branch in `extract_entries`, retaining exact paths and array ord
 
 ### Add a media representation
 
-Translate it into `PartSpec` in `parser.py`; reuse the existing inline or remote pipeline. A new encoding requires its own bounded decoder in `media.py` and adversarial tests.
+Translate it into `PartSpec` in `parser.py`; reuse the existing inline or remote pipeline. A new encoding requires its own bounded decoder in `media.py` and adversarial tests. A decoder that can produce large output should offer the same block-at-a-time `sink` contract so the normalizer can keep folding instead of buffering.
 
 ### Add a MIME type
 

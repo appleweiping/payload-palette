@@ -405,6 +405,7 @@ class NormalizationPolicy:
     )
     remote: RemoteURLPolicy = field(default_factory=RemoteURLPolicy)
     verify_known_signatures: bool = True
+    allow_url_safe_base64: bool = False
 
     def __post_init__(self) -> None:
         _bounded_int("max_parts", self.max_parts, 1, MAX_POLICY_PARTS)
@@ -426,8 +427,9 @@ class NormalizationPolicy:
             raise ValueError("allowed_mime_types must be a mapping")
         if not isinstance(self.remote, RemoteURLPolicy):
             raise ValueError("remote must be a RemoteURLPolicy")
-        if type(self.verify_known_signatures) is not bool:
-            raise ValueError("verify_known_signatures must be a boolean")
+        for name in ("verify_known_signatures", "allow_url_safe_base64"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
         byte_limits = dict(self.max_bytes_by_kind)
         if set(byte_limits) != _PART_KINDS:
             raise ValueError("max_bytes_by_kind must contain exactly text, image, audio, and video")

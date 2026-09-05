@@ -6,13 +6,20 @@ import pytest
 
 from payload_palette.errors import PayloadValidationError
 from payload_palette.media import (
+    BASE64_BLOCK_CHARACTERS,
     MAX_DATA_URL_HEADER_CHARACTERS,
+    SIGNATURE_PREFIX_BYTES,
     decode_base64,
     decode_data_url,
     detect_mime_type,
     mime_from_format,
     normalize_mime_type,
 )
+
+
+def _repeating_bytes(size: int) -> bytes:
+    pattern = b"\x89PNG\r\n\x1a\npayload-palette\x00\xfb\xf0"
+    return (pattern * (size // len(pattern) + 1))[:size]
 
 
 def test_decodes_padded_and_unpadded_base64() -> None:
@@ -64,6 +71,115 @@ def test_decoded_size_is_checked_after_decode() -> None:
         decode_base64(encoded, "$", 4)
 
 
+def test_url_safe_base64_is_rejected_by_default(url_safe_png_base64: str) -> None:
+    assert "-" in url_safe_png_base64 and "_" in url_safe_png_base64
+    with pytest.raises(PayloadValidationError) as error:
+        decode_base64(url_safe_png_base64, "$.data", 64)
+    issue = error.value.issues[0]
+    assert issue.code == "url_safe_base64_disabled"
+    assert issue.path == "$.data"
+    assert issue.hint is not None
+
+
+def test_url_safe_base64_decodes_to_the_same_bytes_when_enabled(
+    url_safe_png_base64: str, standard_png_base64: str
+) -> None:
+    expected = decode_base64(standard_png_base64, "$", 64)
+    assert decode_base64(url_safe_png_base64, "$", 64, allow_url_safe=True) == expected
+    assert decode_base64(url_safe_png_base64.rstrip("="), "$", 64, allow_url_safe=True) == expected
+    assert decode_base64("aG Vs\nbG-_", "$", 64, allow_url_safe=True) == decode_base64(
+        "aGVsbG+/", "$", 64
+    )
+
+
+def test_enabling_url_safe_base64_still_accepts_the_standard_alphabet(
+    standard_png_base64: str,
+) -> None:
+    assert decode_base64(standard_png_base64, "$", 64, allow_url_safe=True) == decode_base64(
+        standard_png_base64, "$", 64
+    )
+
+
+@pytest.mark.parametrize("allow_url_safe", [False, True])
+def test_mixed_base64_alphabets_are_always_rejected(allow_url_safe: bool) -> None:
+    with pytest.raises(PayloadValidationError) as error:
+        decode_base64("aGVsbG-/", "$.data", 64, allow_url_safe=allow_url_safe)
+    assert error.value.issues[0].code == "mixed_base64_alphabet"
+
+
+@pytest.mark.parametrize(
+    ("value", "message"),
+    [
+        ("-A=", "non-canonical padding"),
+        ("-", "invalid length"),
+        ("-B==", "non-zero padding bits"),
+        ("-%%A", "not valid URL-safe Base64"),
+    ],
+)
+def test_url_safe_payloads_obey_the_standard_strictness_rules(value: str, message: str) -> None:
+    with pytest.raises(PayloadValidationError, match=message) as error:
+        decode_base64(value, "$.data", 10, allow_url_safe=True)
+    assert error.value.issues[0].code == "invalid_base64"
+
+
+def test_url_safe_base64_is_bounded_before_decode(url_safe_png_base64: str) -> None:
+    with pytest.raises(PayloadValidationError) as error:
+        decode_base64(url_safe_png_base64, "$", 2, allow_url_safe=True)
+    assert error.value.issues[0].code == "part_too_large"
+
+
+def test_streaming_sink_receives_bounded_ordered_blocks() -> None:
+    payload = _repeating_bytes(200_000)
+    encoded = base64.b64encode(payload).decode()
+    blocks: list[bytes] = []
+    assert decode_base64(encoded, "$", len(payload), sink=blocks.append) == b""
+    assert len(blocks) > 1
+    assert max(len(block) for block in blocks) <= BASE64_BLOCK_CHARACTERS // 4 * 3
+    assert b"".join(blocks) == payload
+    assert decode_base64(encoded, "$", len(payload)) == payload
+
+
+def test_streaming_handles_a_block_aligned_payload_without_padding() -> None:
+    payload = _repeating_bytes(BASE64_BLOCK_CHARACTERS // 4 * 3)
+    encoded = base64.b64encode(payload).decode()
+    assert len(encoded) == BASE64_BLOCK_CHARACTERS and not encoded.endswith("=")
+    blocks: list[bytes] = []
+    decode_base64(encoded, "$", len(payload), sink=blocks.append)
+    assert blocks == [payload]
+
+
+def test_streaming_rejoins_whitespace_split_across_blocks() -> None:
+    payload = _repeating_bytes(200_000)
+    wrapped = base64.encodebytes(payload).decode()
+    assert "\n" in wrapped
+    blocks: list[bytes] = []
+    decode_base64(wrapped, "$", len(payload), sink=blocks.append)
+    assert b"".join(blocks) == payload
+
+
+def test_streaming_stops_at_the_decoded_limit_before_the_last_block() -> None:
+    payload = _repeating_bytes(199_998)
+    encoded = base64.b64encode(payload).decode()
+    blocks: list[bytes] = []
+    with pytest.raises(PayloadValidationError) as error:
+        decode_base64(encoded, "$", len(payload) - 1, sink=blocks.append)
+    assert error.value.issues[0].code == "part_too_large"
+    assert f"decoded payload is {len(payload)} bytes" in error.value.issues[0].message
+    assert 0 < sum(len(block) for block in blocks) < len(payload)
+
+
+def test_streaming_decodes_url_safe_payloads_across_blocks() -> None:
+    payload = _repeating_bytes(200_000)
+    url_safe = base64.urlsafe_b64encode(payload).decode()
+    assert url_safe != base64.b64encode(payload).decode()
+    blocks: list[bytes] = []
+    decode_base64(url_safe, "$", len(payload), allow_url_safe=True, sink=blocks.append)
+    assert b"".join(blocks) == payload
+    with pytest.raises(PayloadValidationError) as error:
+        decode_base64(url_safe, "$", len(payload), sink=blocks.append)
+    assert error.value.issues[0].code == "url_safe_base64_disabled"
+
+
 def test_data_url_decoding(png_base64: str) -> None:
     media = decode_data_url(f"data:image/png;base64,{png_base64}", "$", 100)
     assert media.mime_type == "image/png"
@@ -90,6 +206,16 @@ def test_malformed_data_url(value: str, code: str) -> None:
     with pytest.raises(PayloadValidationError) as error:
         decode_data_url(value, "$", 100)
     assert error.value.issues[0].code == code
+
+
+def test_data_url_alphabet_opt_in_is_forwarded(url_safe_png_base64: str) -> None:
+    value = f"data:image/png;base64,{url_safe_png_base64}"
+    media = decode_data_url(value, "$", 100, allow_url_safe=True)
+    assert media.mime_type == "image/png"
+    assert detect_mime_type(media.data) == "image/png"
+    with pytest.raises(PayloadValidationError) as error:
+        decode_data_url(value, "$", 100)
+    assert error.value.issues[0].code == "url_safe_base64_disabled"
 
 
 def test_data_url_header_limit_is_enforced_before_payload_decode(
@@ -138,3 +264,17 @@ def test_kind_aware_mp4_format() -> None:
 )
 def test_signature_detection(data: bytes, mime: str | None) -> None:
     assert detect_mime_type(data) == mime
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        b"\x89PNG\r\n\x1a\ntrailing bytes that must not matter",
+        b"RIFF\x00\x00\x00\x00WEBPtrailing",
+        b"RIFF\x00\x00\x00\x00WAVEtrailing",
+        b"\x00\x00\x00\x18ftypisomtrailing",
+        b"unknown payload",
+    ],
+)
+def test_signature_detection_needs_only_the_documented_prefix(data: bytes) -> None:
+    assert detect_mime_type(data) == detect_mime_type(data[:SIGNATURE_PREFIX_BYTES])

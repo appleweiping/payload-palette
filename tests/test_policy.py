@@ -412,3 +412,9 @@ def test_policy_size_check_reports_decoded_size() -> None:
     with pytest.raises(PayloadValidationError) as error:
         policy.check_size("image", 2, "$.image")
     assert "2 bytes" in error.value.issues[0].message
+
+
+def test_url_safe_base64_is_disabled_by_default_and_requires_a_boolean() -> None:
+    assert NormalizationPolicy().allow_url_safe_base64 is False
+    with pytest.raises(ValueError, match="allow_url_safe_base64 must be a boolean"):
+        NormalizationPolicy(allow_url_safe_base64=1)  # type: ignore[arg-type]
