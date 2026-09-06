@@ -15,9 +15,16 @@ from payload_palette.media import (
     normalize_mime_type,
     parse_data_url,
 )
-from payload_palette.models import Manifest, NormalizedPart, PartSpec
+from payload_palette.models import (
+    LargeValue,
+    Manifest,
+    NormalizedPart,
+    PartSpec,
+    value_length,
+    value_prefix,
+)
 from payload_palette.parser import parse_document
-from payload_palette.policy import NormalizationPolicy
+from payload_palette.policy import MAX_REMOTE_URL_CHARACTERS, NormalizationPolicy
 
 _FINGERPRINT_PREFIX = "sha256:"
 
@@ -70,15 +77,62 @@ def _summarize_inline(
     )
 
 
+def _split_data_url(value: str | LargeValue, path: str) -> tuple[str, str | LargeValue]:
+    """Return a data URL's MIME type and its still-unmaterialized payload.
+
+    The header of a streamed data URL is inside the retained prefix, so it goes
+    through exactly the grammar a buffered header does; only the payload after
+    the comma stays a measurement.
+    """
+
+    if isinstance(value, str):
+        return parse_data_url(value, path)
+    header = value.data_url_header
+    if header is None:
+        raise problem("invalid_data_url", "data URL is missing its comma separator", path)
+    mime_type, _empty = parse_data_url(header, path)
+    return mime_type, value
+
+
+def _inline_summary(
+    value: str | LargeValue, path: str, max_bytes: int, policy: NormalizationPolicy
+) -> _InlineSummary:
+    """Summarize inline media whether it arrived buffered or streamed.
+
+    A streamed value was already reduced to these three numbers while its
+    characters went past, so there is nothing left to decode; the refusal the
+    stream recorded is raised here instead, against the content path, because
+    only now is it certain the value was meant to be media at all.
+    """
+
+    if isinstance(value, str):
+        return _summarize_inline(value, path, max_bytes, policy)
+    if value.media_issue is not None:
+        raise value.media_issue.raised_at(path)
+    media = value.media
+    if media is None:  # pragma: no cover - LargeValue guarantees one or the other
+        raise problem("invalid_base64", "inline media could not be summarized", path)
+    return _InlineSummary(
+        byte_length=media.byte_length,
+        fingerprint=f"{_FINGERPRINT_PREFIX}{media.digest}",
+        signature_prefix=media.signature_prefix,
+    )
+
+
 def _normalize_text(part: PartSpec, policy: NormalizationPolicy) -> NormalizedPart:
     policy.check_mime("text", "text/plain", part.value_path)
-    if len(part.value) > policy.max_text_characters:
+    value = part.value
+    # A streamed value was left unmaterialized precisely because it is longer
+    # than any acceptable text part, so the same limit refuses it -- and reports
+    # the true length, which the stream counted without keeping the characters.
+    if not isinstance(value, str) or len(value) > policy.max_text_characters:
+        characters = value_length(value)
         raise problem(
             "text_too_long",
-            f"text contains {len(part.value)} characters; limit is {policy.max_text_characters}",
+            f"text contains {characters} characters; limit is {policy.max_text_characters}",
             part.value_path,
         )
-    encoded = part.value.encode("utf-8")
+    encoded = value.encode("utf-8")
     policy.check_size("text", len(encoded), part.value_path)
     return NormalizedPart(
         ordinal=part.ordinal,
@@ -87,9 +141,9 @@ def _normalize_text(part: PartSpec, policy: NormalizationPolicy) -> NormalizedPa
         source="text",
         fingerprint=_sha256(encoded),
         byte_length=len(encoded),
-        character_count=len(part.value),
+        character_count=len(value),
         mime_type="text/plain",
-        text=part.value,
+        text=value,
     )
 
 
@@ -100,8 +154,8 @@ def _normalize_inline(part: PartSpec, policy: NormalizationPolicy) -> Normalized
         if part.declared_mime_type is not None
         else None
     )
-    if part.value[:5].lower() == "data:":
-        mime_type, encoded = parse_data_url(part.value, part.value_path)
+    if value_prefix(part.value, 5).lower() == "data:":
+        mime_type, encoded = _split_data_url(part.value, part.value_path)
         if declared is not None and declared != mime_type:
             raise problem(
                 "mime_conflict",
@@ -109,11 +163,11 @@ def _normalize_inline(part: PartSpec, policy: NormalizationPolicy) -> Normalized
                 part.value_path,
             )
         policy.check_mime(part.kind, mime_type, part.value_path)
-        summary = _summarize_inline(encoded, part.value_path, maximum, policy)
+        summary = _inline_summary(encoded, part.value_path, maximum, policy)
     elif declared is not None:
         mime_type = declared
         policy.check_mime(part.kind, mime_type, part.value_path)
-        summary = _summarize_inline(part.value, part.value_path, maximum, policy)
+        summary = _inline_summary(part.value, part.value_path, maximum, policy)
     else:
         # An envelope such as Ollama's carries inline images with no MIME
         # declaration at all.  The signature is then the only statement about
@@ -121,7 +175,7 @@ def _normalize_inline(part: PartSpec, policy: NormalizationPolicy) -> Normalized
         # compare a declaration against.  Decoding stays bounded by the same
         # per-kind ceiling as a declared part, so this only moves the MIME
         # allowlist check after the decode it would otherwise have preceded.
-        summary = _summarize_inline(part.value, part.value_path, maximum, policy)
+        summary = _inline_summary(part.value, part.value_path, maximum, policy)
         recognized = detect_mime_type(summary.signature_prefix)
         if recognized is None:
             raise problem(
@@ -160,7 +214,16 @@ def _normalize_inline(part: PartSpec, policy: NormalizationPolicy) -> Normalized
 
 
 def _normalize_remote(part: PartSpec, policy: NormalizationPolicy) -> NormalizedPart:
-    display_url, canonical_url = policy.remote.validate(part.value, part.value_path)
+    value = part.value
+    if not isinstance(value, str):
+        # The streaming threshold is never below the URL ceiling, so a value the
+        # stream declined to materialize is already past it.
+        raise problem(
+            "url_too_long",
+            f"remote URL exceeds the {MAX_REMOTE_URL_CHARACTERS}-character limit",
+            part.value_path,
+        )
+    display_url, canonical_url = policy.remote.validate(value, part.value_path)
     mime_type = None
     if part.declared_mime_type is not None:
         mime_type = normalize_mime_type(part.declared_mime_type, part.value_path)

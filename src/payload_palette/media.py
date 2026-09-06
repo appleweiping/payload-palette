@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -295,3 +296,199 @@ def detect_mime_type(data: bytes) -> str | None:
     if data.startswith(b"\x1aE\xdf\xa3"):
         return "video/webm"
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class Base64Summary:
+    """Everything a manifest records about inline media, without its bytes."""
+
+    byte_length: int
+    digest: str
+    signature_prefix: bytes
+
+
+class Base64Digester:
+    """Fold streamed Base64 text into a summary without retaining the payload.
+
+    :func:`decode_base64` sees the whole value, so it can bound the encoded size
+    and read the trailing padding before decoding anything.  A stream offers
+    neither, so the same rules are enforced as characters arrive and the padding
+    rules at :meth:`finish`.  Every value the buffered decoder refuses is still
+    refused.  For a value with more than one fault the two may name *different*
+    faults, because each reports the first one it can see; ``tests/test_stream``
+    pins that difference rather than assuming it away.
+
+    Peak memory is one encoded block plus its decoded bytes, whatever the length
+    of the payload.
+    """
+
+    __slots__ = (
+        "_allow_url_safe",
+        "_decoded_bytes",
+        "_digest",
+        "_encoded_characters",
+        "_finished",
+        "_max_bytes",
+        "_maximum_characters",
+        "_padding",
+        "_path",
+        "_pending",
+        "_prefix",
+        "_raw_characters",
+        "_refuse_mixed",
+        "_refuse_url_safe",
+        "_seen_standard",
+        "_seen_url_safe",
+        "_url_safe",
+        "_whitespace_allowance",
+    )
+
+    def __init__(self, path: str, max_bytes: int, *, allow_url_safe: bool = False) -> None:
+        self._path = path
+        self._max_bytes = max_bytes
+        self._maximum_characters = 4 * ((max_bytes + 2) // 3)
+        self._allow_url_safe = allow_url_safe
+        self._digest = hashlib.sha256()
+        self._prefix = bytearray()
+        self._pending = ""
+        self._decoded_bytes = 0
+        self._encoded_characters = 0
+        self._padding = 0
+        self._raw_characters = 0
+        self._refuse_mixed = False
+        self._refuse_url_safe = False
+        self._whitespace_allowance = max(
+            _MIN_BASE64_WHITESPACE_ALLOWANCE, self._maximum_characters // 8
+        )
+        self._seen_standard = False
+        self._seen_url_safe = False
+        self._url_safe = False
+        self._finished = False
+
+    def feed(self, text: str) -> None:
+        """Absorb the next slice of encoded text.
+
+        The checks run in the order :func:`decode_base64` applies them -- size
+        bound, then alphabet -- so a value that fails both is refused for the
+        same reason by either decoder.
+        """
+
+        if self._finished:
+            raise RuntimeError("Base64Digester.feed called after finish")
+        self._raw_characters += len(text)
+        if self._raw_characters > self._maximum_characters + self._whitespace_allowance:
+            raise problem(
+                "part_too_large",
+                "Base64 representation has excessive encoded or whitespace characters",
+                self._path,
+            )
+        cleaned = text.translate(_ASCII_WHITESPACE)
+        if not cleaned:
+            return
+        self._encoded_characters += len(cleaned)
+        if self._encoded_characters > self._maximum_characters:
+            raise problem(
+                "part_too_large",
+                f"encoded payload can exceed the {self._max_bytes}-byte decoded limit",
+                self._path,
+            )
+        self._classify_alphabet(cleaned)
+        if self._refuse_mixed or self._refuse_url_safe:
+            # The value is already refused, so stop decoding it -- but keep
+            # counting characters, because the buffered decoder bounds the size
+            # of the whole value before it looks at the alphabet and a payload
+            # that is both oversized and mis-encoded must name the same fault
+            # either way.  The alphabet verdict itself is delivered by finish().
+            return
+        stripped = cleaned.rstrip("=")
+        padding = len(cleaned) - len(stripped)
+        if stripped and self._padding:
+            # Padding is only ever a suffix.  A payload that resumes after '='
+            # is not merely unusual, it decodes to a different length than its
+            # own padding claims.
+            raise problem("invalid_base64", "Base64 payload has padding before its end", self._path)
+        self._padding += padding
+        if not stripped:
+            return
+        self._pending += stripped
+        while len(self._pending) >= BASE64_BLOCK_CHARACTERS:
+            self._emit(self._pending[:BASE64_BLOCK_CHARACTERS])
+            self._pending = self._pending[BASE64_BLOCK_CHARACTERS:]
+
+    def finish(self) -> Base64Summary:
+        """Validate the padding, flush the tail, and return the summary."""
+
+        if self._finished:
+            raise RuntimeError("Base64Digester.finish called twice")
+        self._finished = True
+        if self._refuse_mixed:
+            raise problem(
+                "mixed_base64_alphabet",
+                "Base64 payload mixes the standard '+/' and URL-safe '-_' alphabets",
+                self._path,
+            )
+        if self._refuse_url_safe:
+            raise problem(
+                "url_safe_base64_disabled",
+                "Base64 payload uses the URL-safe alphabet, which is disabled by policy",
+                self._path,
+                "accept RFC 4648 section 5 payloads with --allow-url-safe-base64",
+            )
+        if not self._encoded_characters:
+            raise problem("empty_base64", "Base64 payload cannot be empty", self._path)
+        unpadded = self._encoded_characters - self._padding
+        remainder = unpadded % 4
+        if remainder == 1:
+            raise problem("invalid_base64", "Base64 payload has an invalid length", self._path)
+        expected_padding = (4 - remainder) % 4
+        if self._padding not in {0, expected_padding}:
+            raise problem("invalid_base64", "Base64 payload has non-canonical padding", self._path)
+        if self._pending or expected_padding:
+            self._emit(self._pending + ("=" * expected_padding))
+            self._pending = ""
+        return Base64Summary(
+            byte_length=self._decoded_bytes,
+            digest=self._digest.hexdigest(),
+            signature_prefix=bytes(self._prefix),
+        )
+
+    def _classify_alphabet(self, block: str) -> None:
+        """Decide the alphabet from the characters seen so far.
+
+        A block reached before the first ``-`` or ``_`` contains no character
+        the two alphabets disagree about, so decoding it as standard Base64 is
+        the same operation either way and no already-decoded block has to be
+        revisited.
+        """
+
+        if "-" in block or "_" in block:
+            self._seen_url_safe = True
+        if "+" in block or "/" in block:
+            self._seen_standard = True
+        if self._seen_url_safe and self._seen_standard:
+            self._refuse_mixed = True
+        if self._seen_url_safe and not self._allow_url_safe:
+            self._refuse_url_safe = True
+        self._url_safe = self._seen_url_safe
+
+    def _emit(self, block: str) -> None:
+        candidate = block.translate(_URL_SAFE_TO_STANDARD) if self._url_safe else block
+        try:
+            decoded = base64.b64decode(candidate, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            alphabet = "URL-safe" if self._url_safe else "standard"
+            raise problem(
+                "invalid_base64", f"payload is not valid {alphabet} Base64", self._path
+            ) from exc
+        self._decoded_bytes += len(decoded)
+        if self._decoded_bytes > self._max_bytes:
+            raise problem(
+                "part_too_large",
+                f"decoded payload is {self._decoded_bytes} bytes; limit is {self._max_bytes} bytes",
+                self._path,
+            )
+        if base64.b64encode(decoded).decode() != candidate:
+            raise problem("invalid_base64", "Base64 payload has non-zero padding bits", self._path)
+        self._digest.update(decoded)
+        if len(self._prefix) < SIGNATURE_PREFIX_BYTES:
+            self._prefix.extend(decoded[: SIGNATURE_PREFIX_BYTES - len(self._prefix)])

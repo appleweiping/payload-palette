@@ -38,6 +38,9 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
   payload that mixes the two alphabets.
 - Decodes inline Base64 in bounded 64 KiB blocks and folds each block into a size, digest, and
   signature prefix, so peak memory no longer grows with the decoded payload.
+- Decodes JSON incrementally on request, so a whole request never has to be held at once. Peak
+  memory then follows the structure of the request rather than the size of its media: measured
+  on one inline PNG, the same 1.5 MB whether the image is 1 MiB or 32 MiB.
 - Bounds data URL headers before parameter parsing and checks MIME policy before Base64 decoding.
 - Rejects duplicate JSON keys, non-standard numeric constants, excessive nesting, and isolated
   Unicode surrogates.
@@ -230,6 +233,7 @@ Both commands accept:
 | `--no-signature-check` | Disable best-effort signature comparison; MIME allowlists still apply. |
 | `--allow-url-safe-base64` | Also accept the URL-safe `-`/`_` Base64 alphabet. Standard-only is the default. |
 | `--envelope NAME` | Read `default`, `anthropic`, `gemini`, or `ollama` request shapes. Never auto-detected. |
+| `--stream` | Decode incrementally instead of buffering the request. Same manifest, bounded memory. |
 
 Allowlisting only validates a reference. Payload Palette never downloads it:
 
@@ -269,6 +273,31 @@ manifest = normalize_json_bytes(raw_request_body, max_input_bytes=48 * 1024 * 10
 ```
 
 The reverse proxy and HTTP server must enforce an equal or smaller limit before buffering the body.
+
+When the body is large enough that buffering it is the problem, read it as a stream instead. The
+manifest is identical; what changes is that no copy of the media is ever held:
+
+```python
+from payload_palette import normalize_stream
+
+with open("request.json", "rb") as handle:
+    manifest = normalize_stream(handle, policy)
+```
+
+`decode_stream` returns the decoded document alongside a `StreamStatistics` record, so an operator
+can assert on what a run actually retained rather than trust a claim about it:
+
+```python
+from payload_palette import decode_stream
+
+document, statistics = decode_stream(handle, policy)
+print(statistics.streamed_media_bytes, statistics.peak_retained_characters)
+```
+
+A string longer than the streaming threshold arrives as a `LargeValue`: its true length, its leading
+characters, and the media summary computed while it streamed past. Such a value is still usable as
+inline media and is refused as anything else for the reason it would have been refused anyway. See
+[docs/streaming.md](docs/streaming.md).
 See the [API ingress integration boundary](docs/ingress-integration.md) and its
 [machine-readable security policy matrix](benchmarks/security_policy_matrix.json).
 
@@ -408,6 +437,10 @@ Envelope discovery ──► ordered part parsing ──► source classificatio
 
 The implementation separates external-shape parsing, media decoding, policy, and manifest construction so new adapters do not weaken core security rules. Read [docs/architecture.md](docs/architecture.md) for invariants, data flow, extension points, and threat analysis.
 
+The same pipeline runs over a byte stream when the request is too large to hold. Read
+[docs/streaming.md](docs/streaming.md) for how a long string becomes a measurement, what such a
+value may still be used for, and the differential evidence that both paths answer alike.
+
 ## Reproduce the demo
 
 The demo builder uses the public API and has no extra dependencies:
@@ -421,7 +454,7 @@ It writes `manifest.json` and `demo.svg`. CI compares those files byte-for-byte 
 
 ## Limitations and roadmap
 
-Version 0.2 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, resolve local paths, mutate requests in place, or submit payloads to a model. URL-safe Base64 is converted only under an explicit opt-in. Inline Base64 is decoded in bounded blocks and never held in full, but standard-library JSON parsing still materializes one bounded document in memory; streaming JSON decode is a possible future addition that will retain the same default-deny resource model. Opt-in adapters now read the Anthropic Messages, Google Gemini, and Ollama envelopes; a vendor shape is never detected from the document, so the caller always names the envelope.
+Version 0.2 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, resolve local paths, mutate requests in place, or submit payloads to a model. URL-safe Base64 is converted only under an explicit opt-in. Inline Base64 is decoded in bounded blocks and never held in full, and JSON can now be decoded incrementally too, so no part of a request has to be materialized: `normalize_stream` and `--stream` apply the identical default-deny resource model and produce the identical manifest. Streaming remains opt-in, because the two paths can name different issue codes for a document that breaks more than one rule at once; [docs/streaming.md](docs/streaming.md) gives the worked example and the differential evidence. Opt-in adapters now read the Anthropic Messages, Google Gemini, and Ollama envelopes; a vendor shape is never detected from the document, so the caller always names the envelope.
 
 The repository's benchmark inputs are synthetic and its timing results characterize only the
 recorded machine. Read the [evaluation scope and research limitations](docs/research-limitations.md)

@@ -26,8 +26,10 @@ from payload_palette.ingress import (
 from payload_palette.ingress import (
     MAX_JSON_INTEGER_DIGITS as _MAX_JSON_INTEGER_DIGITS,
 )
+from payload_palette.models import Manifest
 from payload_palette.normalizer import normalize
 from payload_palette.policy import ENVELOPE_NAMES, NormalizationPolicy, RemoteURLPolicy
+from payload_palette.streaming import normalize_path, normalize_stream
 
 MAX_CLI_INPUT_BYTES = MAX_INGRESS_INPUT_BYTES
 MAX_JSON_DEPTH = _MAX_JSON_DEPTH
@@ -86,6 +88,14 @@ def _parser() -> argparse.ArgumentParser:
             choices=ENVELOPE_NAMES,
             default="default",
             help="request envelope to read; vendor shapes are never auto-detected",
+        )
+        command.add_argument(
+            "--stream",
+            action="store_true",
+            help=(
+                "decode incrementally so peak memory follows the request structure "
+                "rather than its media size"
+            ),
         )
         command.add_argument("--json-errors", action="store_true")
     normalize_parser.add_argument("-o", "--output", default="-", help="output path or -")
@@ -239,6 +249,33 @@ def _write_json_file_atomic(value: Any, path: Path, *, compact: bool = False) ->
                 temporary_path.unlink(missing_ok=True)
 
 
+def _normalize_streamed(
+    path: str, stdin: TextIO, policy: NormalizationPolicy, max_input_bytes: int
+) -> Manifest:
+    """Normalize without holding the whole request.
+
+    Streaming needs the raw bytes, not decoded text, so standard input is read
+    through its binary buffer.  A text stream with no buffer is refused rather
+    than re-encoded, because re-encoding would reintroduce the whole-request
+    copy the caller asked to avoid.
+    """
+
+    if path != "-":
+        return normalize_path(Path(path), policy, max_input_bytes=max_input_bytes)
+    buffer = getattr(stdin, "buffer", None)
+    if buffer is None:
+        raise PayloadValidationError(
+            [
+                ValidationIssue(
+                    "input_read",
+                    "--stream needs a binary standard input; pass a file path instead",
+                    "-",
+                )
+            ]
+        )
+    return normalize_stream(buffer, policy, max_input_bytes=max_input_bytes)
+
+
 def run(
     argv: list[str] | None = None,
     *,
@@ -259,8 +296,10 @@ def run(
             stderr,
         )
     try:
-        document = _read_json(args.input, stdin, input_limit)
-        manifest = normalize(document, active_policy)
+        if args.stream:
+            manifest = _normalize_streamed(args.input, stdin, active_policy, input_limit)
+        else:
+            manifest = normalize(_read_json(args.input, stdin, input_limit), active_policy)
         if args.command == "validate":
             result = {
                 "valid": True,

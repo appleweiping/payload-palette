@@ -21,6 +21,20 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 - A bounded streaming Base64 decoder. `decode_base64(..., sink=...)` decodes in
   `BASE64_BLOCK_CHARACTERS` blocks and hands each decoded block to the sink without retaining
   the payload, enforcing every existing bound against the running decoded total.
+- Incremental JSON decoding, so a request never has to be held in memory at all. `normalize_stream`,
+  `normalize_path`, `decode_stream`, and the `--stream` CLI flag read a byte stream in bounded
+  chunks and produce the identical manifest. The nesting ceiling is now enforced while parsing
+  rather than by a separate character pass over the whole document, and duplicate keys, non-standard
+  numeric constants, non-finite floats, oversized integers, isolated surrogates, and the input byte
+  limit are all applied as the characters arrive.
+- `LargeValue`: a string past the streaming threshold, kept as its true character count, its leading
+  `LARGE_VALUE_PREFIX_CHARACTERS` characters, and the Base64 summary folded in while the value
+  streamed past. The threshold sits above `max_text_characters` and `MAX_REMOTE_URL_CHARACTERS`, so
+  such a value is refused as text or as a URL for the reason it would have been refused anyway, with
+  `text_too_long` reporting the true length. A refusal discovered while summarizing travels with the
+  value and is raised against the content path by whoever decides the value is media.
+- `Base64Digester`, the streaming form of the Base64 contract, and `StreamStatistics`, which reports
+  what a parse actually retained.
 
 ### Changed
 
@@ -28,6 +42,17 @@ All notable changes are documented here. Versions follow Semantic Versioning.
   `SIGNATURE_PREFIX_BYTES` signature prefix as blocks arrive, instead of holding the whole
   decoded payload. Manifests, fingerprints, limits, and error codes are unchanged; peak traced
   memory for a 4 MiB inline image drops from roughly 5x the decoded size to under 0.1x.
+- Peak memory for a streamed request no longer follows its media size. Measured with `tracemalloc`
+  on one request holding a single inline PNG, the buffered path peaks at roughly twice the request
+  while the streamed path peaks at the same 1.5 MB whether the image is 1 MiB, 8 MiB, or 32 MiB --
+  a 60x reduction at 32 MiB, and growing with the payload.
+- `PartSpec.value` is now `str | LargeValue`. A part built by hand from a string is unaffected.
+- Streaming is opt-in rather than the default, because a document that breaks more than one rule at
+  once can be reported under different issue codes by the two paths: each names the first fault it
+  can see, and the buffered path validates the encoding of the whole body before parsing anything.
+  Accept/reject and the resulting manifest are identical, which is checked by differential testing
+  over 20,000 Base64 values, 6,000 JSON documents, and 1,500 multimodal requests rather than
+  asserted. `docs/streaming.md` records the method, the measurements, and the one worked exception.
 
 ## [0.2.0] - 2026-09-01
 

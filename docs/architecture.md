@@ -25,14 +25,25 @@ The implementation maintains seven invariants:
 | Module | Responsibility |
 |---|---|
 | `errors.py` | Immutable issues, stable validation envelope, and output-write failures. |
-| `models.py` | Internal `PartSpec` plus immutable normalized part and manifest values. |
+| `models.py` | Internal `PartSpec`, streamed `LargeValue`, immutable normalized part and manifest values. |
 | `parser.py` | Envelope discovery, type aliases, ordered traversal, field extraction. |
 | `media.py` | MIME normalization, bounded Base64/data-URL decode, signature recognition. |
 | `policy.py` | Resource limits, MIME allowlists, host patterns, remote URL validation. |
 | `normalizer.py` | Per-source pipelines, error aggregation, fingerprints, canonical manifest. |
+| `jsonstream.py` | Incremental strict JSON decoding from a byte stream in bounded chunks. |
+| `streaming.py` | Threshold selection and the streamed entry points onto the same pipeline. |
 | `cli.py` | JSON file/stdin handling, policy flags, exit codes, JSON/human errors. |
 
 Dependencies point inward toward models and errors. Neither parsing nor policy imports the CLI. The core has no third-party runtime dependency.
+
+`jsonstream.py` is an alternative *entrance* to the pipeline, not a second pipeline. It produces the
+same documents the buffered decoder produces, except that a string past the streaming threshold
+arrives as a `LargeValue` -- its length, its leading characters, and the Base64 summary folded in
+while the value streamed past. Everything downstream is shared, so no size cap, MIME allowlist,
+signature check, or remote-URL rule can be reached by one path and skipped by the other. Widening
+`PartSpec.value` to `str | LargeValue` is what makes that structural rather than aspirational: every
+site that would have needed the characters is a type error until it handles their absence
+explicitly. Read [streaming.md](streaming.md) for the resource result and the differential evidence.
 
 ## Pipeline
 

@@ -8,7 +8,14 @@ from typing import Any, TypeGuard, cast
 
 from payload_palette.errors import PayloadValidationError, ValidationIssue, problem
 from payload_palette.media import mime_from_format, normalize_mime_type
-from payload_palette.models import EnvelopeName, PartKind, PartSpec, SourceKind
+from payload_palette.models import (
+    EnvelopeName,
+    LargeValue,
+    PartKind,
+    PartSpec,
+    SourceKind,
+    value_prefix,
+)
 
 _TYPE_ALIASES: dict[str, PartKind] = {
     "text": "text",
@@ -50,13 +57,42 @@ class _AdaptedPart:
     """
 
     kind: PartKind
-    value: str
+    value: str | LargeValue
     value_path: str
     source_hint: SourceKind
     declared_mime_type: str | None = None
 
 
-def _adapted_text(value: str, value_path: str) -> _AdaptedPart:
+def _is_content(value: Any) -> TypeGuard[str | LargeValue]:
+    """Report a JSON string value, whether or not the stream kept its characters.
+
+    A streamed request replaces an over-long string with a measurement, and the
+    envelope adapters care only that a *string* occupied the position.  Whoever
+    consumes the value decides whether the missing characters matter: text and
+    URL parts refuse it on length alone, and inline media never needed them.
+    """
+
+    return isinstance(value, (str, LargeValue))
+
+
+def _is_present_content(value: Any) -> TypeGuard[str | LargeValue]:
+    """Report a non-empty JSON string value.
+
+    A streamed value is longer than the threshold that produced it, so it is
+    never the empty string these checks exist to catch.
+    """
+
+    return isinstance(value, LargeValue) or (isinstance(value, str) and bool(value))
+
+
+def _reject_surrogates(value: str | LargeValue, path: str) -> None:
+    """Scan a materialized value; a streamed one was checked as it decoded."""
+
+    if isinstance(value, str):
+        _reject_isolated_surrogates(value, path)
+
+
+def _adapted_text(value: str | LargeValue, value_path: str) -> _AdaptedPart:
     return _AdaptedPart(
         kind="text",
         value=value,
@@ -144,7 +180,7 @@ def _extract_default(document: Any, append_entry: _AppendEntry, append_issue: _A
                 continue
             content = message.get("content")
             content_path = f"{message_path}.content"
-            if isinstance(content, str):
+            if _is_content(content):
                 append_entry(_adapted_text(content, content_path), content_path)
             elif _is_array(content):
                 for index, part in enumerate(content):
@@ -228,7 +264,7 @@ def _extract_anthropic(
             continue
         content = message.get("content")
         content_path = f"{message_path}.content"
-        if isinstance(content, str):
+        if _is_content(content):
             append_entry(_adapted_text(content, content_path), content_path)
             continue
         if not _is_array(content):
@@ -253,7 +289,7 @@ def _anthropic_block(
     content_block, block_type = typed
     if block_type == "text":
         value = content_block.get("text")
-        if not isinstance(value, str):
+        if not _is_content(value):
             append_issue(
                 ValidationIssue(
                     "text_type", "text block requires a string text field", f"{path}.text"
@@ -300,7 +336,7 @@ def _anthropic_image(
         return
     if normalized_type == "url":
         url = source.get("url")
-        if not isinstance(url, str) or not url:
+        if not _is_present_content(url):
             append_issue(
                 ValidationIssue(
                     "missing_media",
@@ -345,7 +381,7 @@ def _anthropic_base64_source(
     if mime_type is None:
         return
     data = source.get("data")
-    if not isinstance(data, str) or not data:
+    if not _is_present_content(data):
         append_issue(
             ValidationIssue(
                 "missing_media",
@@ -415,7 +451,7 @@ def _gemini_part(
     field = present[0]
     if field == "text":
         value = part["text"]
-        if not isinstance(value, str):
+        if not _is_content(value):
             append_issue(
                 ValidationIssue(
                     "text_type", "text part requires a string text field", f"{path}.text"
@@ -468,7 +504,7 @@ def _gemini_media(
     inline = field == "inline_data"
     value_key = "data" if inline else "file_uri"
     value = container.get(value_key)
-    if not isinstance(value, str) or not value:
+    if not _is_present_content(value):
         append_issue(
             ValidationIssue(
                 "missing_media",
@@ -509,7 +545,7 @@ def _extract_ollama(document: Any, append_entry: _AppendEntry, append_issue: _Ap
         )
     if roots[0] == "prompt":
         prompt = document["prompt"]
-        if not isinstance(prompt, str):
+        if not _is_content(prompt):
             raise problem("text_type", "prompt must be a string", "$.prompt")
         append_entry(_adapted_text(prompt, "$.prompt"), "$.prompt")
         _ollama_images(document, "$", append_entry, append_issue)
@@ -526,7 +562,7 @@ def _extract_ollama(document: Any, append_entry: _AppendEntry, append_issue: _Ap
             continue
         content = message.get("content")
         content_path = f"{message_path}.content"
-        if not isinstance(content, str):
+        if not _is_content(content):
             append_issue(
                 ValidationIssue("content_type", "message content must be a string", content_path)
             )
@@ -559,7 +595,7 @@ def _ollama_images(
         return
     for index, image in enumerate(images):
         image_path = f"{images_path}[{index}]"
-        if not isinstance(image, str) or not image:
+        if not _is_present_content(image):
             append_issue(
                 ValidationIssue(
                     "missing_media",
@@ -625,8 +661,12 @@ def parse_part(raw: Any, path: str, ordinal: int) -> PartSpec:
 def _adapted_spec(raw: _AdaptedPart, path: str, ordinal: int) -> PartSpec:
     """Finish an adapter translation under the rules a native part also obeys."""
 
-    _reject_isolated_surrogates(raw.value, raw.value_path)
-    if raw.source_hint == "remote" and not raw.value[:8].lower().startswith(
+    if isinstance(raw.value, str):
+        _reject_isolated_surrogates(raw.value, raw.value_path)
+    # A streamed value needs no surrogate scan here: the decoder refuses an
+    # isolated surrogate while the characters go past, so one can never reach
+    # this point inside a LargeValue.
+    if raw.source_hint == "remote" and not value_prefix(raw.value, 8).lower().startswith(
         ("http://", "https://")
     ):
         raise problem("url_scheme", "media URL must use HTTP or HTTPS", raw.value_path)
@@ -643,9 +683,9 @@ def _adapted_spec(raw: _AdaptedPart, path: str, ordinal: int) -> PartSpec:
 
 def _parse_text(raw: Mapping[str, Any], path: str, ordinal: int) -> PartSpec:
     value = raw.get("text")
-    if not isinstance(value, str):
+    if not _is_content(value):
         raise problem("text_type", "text part requires a string text field", f"{path}.text")
-    _reject_isolated_surrogates(value, f"{path}.text")
+    _reject_surrogates(value, f"{path}.text")
     return PartSpec(
         ordinal=ordinal,
         path=path,
@@ -685,7 +725,7 @@ def _parse_media(
             )
         container = raw.get(container_key)
         value_path = f"{path}.{container_key}"
-        if isinstance(container, str):
+        if _is_content(container):
             value = container
         elif isinstance(container, Mapping):
             present_keys = [key for key in ("data", "url") if key in container]
@@ -739,14 +779,14 @@ def _parse_media(
             declared_mime, mime_from_format(format_value, kind), f"{path}.format"
         )
 
-    if not isinstance(value, str) or not value:
+    if not _is_present_content(value):
         raise problem(
             "missing_media",
             f"{kind} part requires a non-empty data or URL value",
             value_path,
         )
-    _reject_isolated_surrogates(value, value_path)
-    prefix = value[:8].lower()
+    _reject_surrogates(value, value_path)
+    prefix = value_prefix(value, 8).lower()
     if prefix.startswith("data:"):
         source_hint = "inline"
     elif prefix.startswith(("http://", "https://")):

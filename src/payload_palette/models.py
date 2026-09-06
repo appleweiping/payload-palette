@@ -7,6 +7,14 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal
 
+from payload_palette.errors import PayloadValidationError, ValidationIssue
+from payload_palette.media import Base64Summary
+
+# How much of an over-long string a streamed value retains.  A ``data:`` URL
+# header is bounded well below this, so the comma ending it is always inside
+# the prefix and every shorter probe reads real characters.
+LARGE_VALUE_PREFIX_CHARACTERS = 2048
+
 PartKind = Literal["text", "image", "audio", "video"]
 SourceKind = Literal["text", "inline", "remote"]
 EnvelopeName = Literal["default", "anthropic", "gemini", "ollama"]
@@ -64,6 +72,65 @@ def _validate_optional_count(value: int | None, name: str) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class DeferredIssue:
+    """A refusal discovered while streaming, re-raised against the real path.
+
+    A long string is summarized before anything knows what it is.  Refusing a
+    malformed Base64 payload at that moment would report it at the JSON path
+    rather than at the content path the rest of the pipeline uses, and would
+    refuse a *text* part for a fault that only matters to media.  The refusal
+    therefore travels with the value and is raised by whoever decides the value
+    is media.
+    """
+
+    code: str
+    message: str
+    hint: str | None = None
+
+    def raised_at(self, path: str) -> PayloadValidationError:
+        return PayloadValidationError([ValidationIssue(self.code, self.message, path, self.hint)])
+
+
+@dataclass(frozen=True, slots=True)
+class LargeValue:
+    """A string kept as measurements instead of characters.
+
+    ``prefix`` holds the first :data:`LARGE_VALUE_PREFIX_CHARACTERS` characters,
+    ``character_count`` the true length, and ``media`` the Base64 summary
+    computed while the value streamed past -- or ``media_issue`` if that summary
+    could not be produced.  Exactly one of the two is set.
+    """
+
+    character_count: int
+    prefix: str
+    data_url_header: str | None = None
+    media: Base64Summary | None = None
+    media_issue: DeferredIssue | None = None
+
+    def __post_init__(self) -> None:
+        if (self.media is None) == (self.media_issue is None):
+            raise ValueError("a LargeValue carries either a media summary or its refusal")
+
+
+def value_length(value: str | LargeValue) -> int:
+    """Return the character count of a materialized or streamed string."""
+
+    return len(value) if isinstance(value, str) else value.character_count
+
+
+def value_prefix(value: str | LargeValue, count: int) -> str:
+    """Return the leading characters of a materialized or streamed string.
+
+    ``count`` may not exceed what a streamed value retains, so every probe the
+    pipeline makes reads real characters rather than a silently short answer.
+    """
+
+    if count > LARGE_VALUE_PREFIX_CHARACTERS:
+        raise ValueError(f"at most {LARGE_VALUE_PREFIX_CHARACTERS} leading characters are retained")
+    return value[:count] if isinstance(value, str) else value.prefix[:count]
+
+
+@dataclass(frozen=True, slots=True)
 class PartSpec:
     """A parsed content part before media decoding and policy checks."""
 
@@ -71,14 +138,16 @@ class PartSpec:
     path: str
     value_path: str
     kind: PartKind
-    value: str
+    value: str | LargeValue
     source_hint: SourceKind
     declared_mime_type: str | None = None
     attributes: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _validate_count(self.ordinal, "ordinal")
-        for name in ("path", "value_path", "value"):
+        if not isinstance(self.value, (str, LargeValue)):
+            raise ValueError("value must be a string or a streamed LargeValue")
+        for name in ("path", "value_path"):
             value = getattr(self, name)
             if not isinstance(value, str):
                 raise ValueError(f"{name} must be a string")
