@@ -9,6 +9,13 @@ from typing import Any, Literal
 
 PartKind = Literal["text", "image", "audio", "video"]
 SourceKind = Literal["text", "inline", "remote"]
+EnvelopeName = Literal["default", "anthropic", "gemini", "ollama"]
+
+# Every request envelope the parser can be asked to read.  Adapters are opt-in:
+# "default" keeps the original contract and no vendor shape is ever detected
+# from the document, because guessing would weaken the deliberate rejection of
+# an ambiguous envelope.
+ENVELOPE_NAMES: tuple[EnvelopeName, ...] = ("default", "anthropic", "gemini", "ollama")
 
 # CPython permits configuring its integer-to-decimal conversion limit as low as
 # 640 digits.  Keeping public model integers within that boundary means their

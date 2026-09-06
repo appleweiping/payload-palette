@@ -11,7 +11,7 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from payload_palette.errors import PayloadValidationError, problem
 from payload_palette.media import normalize_mime_type
-from payload_palette.models import PartKind
+from payload_palette.models import ENVELOPE_NAMES, EnvelopeName, PartKind
 
 _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _LEGACY_IPV4 = re.compile(
@@ -406,6 +406,7 @@ class NormalizationPolicy:
     remote: RemoteURLPolicy = field(default_factory=RemoteURLPolicy)
     verify_known_signatures: bool = True
     allow_url_safe_base64: bool = False
+    envelope: EnvelopeName = "default"
 
     def __post_init__(self) -> None:
         _bounded_int("max_parts", self.max_parts, 1, MAX_POLICY_PARTS)
@@ -430,6 +431,8 @@ class NormalizationPolicy:
         for name in ("verify_known_signatures", "allow_url_safe_base64"):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be a boolean")
+        if self.envelope not in ENVELOPE_NAMES:
+            raise ValueError(f"envelope must be one of {', '.join(ENVELOPE_NAMES)}")
         byte_limits = dict(self.max_bytes_by_kind)
         if set(byte_limits) != _PART_KINDS:
             raise ValueError("max_bytes_by_kind must contain exactly text, image, audio, and video")
@@ -494,6 +497,7 @@ class NormalizationPolicy:
 __all__ = [
     "DEFAULT_MAX_BYTES",
     "DEFAULT_MIME_TYPES",
+    "ENVELOPE_NAMES",
     "MAX_POLICY_BYTES",
     "MAX_POLICY_PARTS",
     "MAX_POLICY_TEXT_CHARACTERS",

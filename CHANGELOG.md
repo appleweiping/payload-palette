@@ -6,6 +6,12 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Opt-in envelope adapters for the Anthropic Messages, Google Gemini `generateContent`,
+  and Ollama request shapes, selected with `NormalizationPolicy(envelope=...)` or
+  `--envelope`. A vendor shape is never auto-detected, because guessing would weaken the
+  `ambiguous_envelope` rejection the default contract relies on. An adapter translates
+  shape only: part order, size caps, MIME policy, signature checks, and the remote-URL
+  default-deny all apply unchanged.
 - Opt-in RFC 4648 section 5 URL-safe Base64 for inline media, through
   `NormalizationPolicy(allow_url_safe_base64=True)`, `decode_base64(..., allow_url_safe=True)`,
   and the `--allow-url-safe-base64` CLI flag. Decoding stays standard-only by default and the

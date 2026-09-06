@@ -110,12 +110,29 @@ def _normalize_inline(part: PartSpec, policy: NormalizationPolicy) -> Normalized
             )
         policy.check_mime(part.kind, mime_type, part.value_path)
         summary = _summarize_inline(encoded, part.value_path, maximum, policy)
-    else:
-        if declared is None:  # parser normally prevents this; retained as an internal invariant.
-            raise problem("missing_mime", "inline media requires a MIME type", part.value_path)
+    elif declared is not None:
         mime_type = declared
         policy.check_mime(part.kind, mime_type, part.value_path)
         summary = _summarize_inline(part.value, part.value_path, maximum, policy)
+    else:
+        # An envelope such as Ollama's carries inline images with no MIME
+        # declaration at all.  The signature is then the only statement about
+        # the media, so it becomes the MIME type instead of something to
+        # compare a declaration against.  Decoding stays bounded by the same
+        # per-kind ceiling as a declared part, so this only moves the MIME
+        # allowlist check after the decode it would otherwise have preceded.
+        summary = _summarize_inline(part.value, part.value_path, maximum, policy)
+        recognized = detect_mime_type(summary.signature_prefix)
+        if recognized is None:
+            raise problem(
+                "undeclared_media_type",
+                "inline media has no declared MIME type and no recognizable signature",
+                part.value_path,
+                "this envelope declares no MIME type, so the leading bytes must "
+                "match a supported container signature",
+            )
+        mime_type = recognized
+        policy.check_mime(part.kind, mime_type, part.value_path)
     policy.check_size(part.kind, summary.byte_length, part.value_path)
     detected = detect_mime_type(summary.signature_prefix)
     if policy.verify_known_signatures and detected is not None and detected != mime_type:
@@ -170,7 +187,7 @@ def normalize(document: Any, policy: NormalizationPolicy | None = None) -> Manif
     if policy is not None and not isinstance(policy, NormalizationPolicy):
         raise ValueError("policy must be a NormalizationPolicy or None")
     active_policy = policy if policy is not None else NormalizationPolicy()
-    specs = parse_document(document, active_policy.max_parts)
+    specs = parse_document(document, active_policy.max_parts, envelope=active_policy.envelope)
     normalized: list[NormalizedPart] = []
     issues: list[ValidationIssue] = []
     inline_bytes = 0

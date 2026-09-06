@@ -27,7 +27,7 @@ from payload_palette.ingress import (
     MAX_JSON_INTEGER_DIGITS as _MAX_JSON_INTEGER_DIGITS,
 )
 from payload_palette.normalizer import normalize
-from payload_palette.policy import NormalizationPolicy, RemoteURLPolicy
+from payload_palette.policy import ENVELOPE_NAMES, NormalizationPolicy, RemoteURLPolicy
 
 MAX_CLI_INPUT_BYTES = MAX_INGRESS_INPUT_BYTES
 MAX_JSON_DEPTH = _MAX_JSON_DEPTH
@@ -81,6 +81,12 @@ def _parser() -> argparse.ArgumentParser:
             action="store_true",
             help="also accept RFC 4648 section 5 URL-safe Base64 inline media",
         )
+        command.add_argument(
+            "--envelope",
+            choices=ENVELOPE_NAMES,
+            default="default",
+            help="request envelope to read; vendor shapes are never auto-detected",
+        )
         command.add_argument("--json-errors", action="store_true")
     normalize_parser.add_argument("-o", "--output", default="-", help="output path or -")
     normalize_parser.add_argument("--compact", action="store_true", help="emit compact JSON")
@@ -93,6 +99,7 @@ def _policy(args: argparse.Namespace) -> NormalizationPolicy:
         max_total_inline_bytes=args.max_total_bytes,
         verify_known_signatures=not args.no_signature_check,
         allow_url_safe_base64=args.allow_url_safe_base64,
+        envelope=args.envelope,
         remote=RemoteURLPolicy(
             allowed_hosts=tuple(args.allow_host),
             require_https=not args.allow_http,

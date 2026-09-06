@@ -30,6 +30,8 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
 
 - Preserves the original order of `text`, `image`, `audio`, and `video` parts.
 - Accepts a direct content array, a `{ "content": [...] }` envelope, a single typed part, or `messages[].content` arrays.
+- Reads Anthropic Messages, Google Gemini `generateContent`, and Ollama envelopes through opt-in
+  adapters that the caller names. A vendor shape is never detected from the document.
 - Supports base64 data URLs and strict padded or unpadded standard Base64, with encoded-length and
   whitespace-amplification bounds before allocation and decoding.
 - Accepts RFC 4648 section 5 URL-safe Base64 only when explicitly enabled, and always rejects a
@@ -123,6 +125,46 @@ may contain any Unicode scalar value, but isolated UTF-16 surrogate code points 
 fingerprints cover exact UTF-8 bytes—Payload Palette intentionally does not apply NFC/NFKC or other
 semantic text normalization.
 
+### Envelope adapters
+
+The table above describes the default contract. Three further request shapes are supported, but only
+when the caller names one through `NormalizationPolicy(envelope=...)` or `--envelope`. A vendor shape
+is never inferred from the document, because guessing would weaken the deliberate
+`ambiguous_envelope` rejection. An adapter translates shape only: part order, per-kind size caps,
+MIME policy, signature checks, and the remote-URL default-deny apply exactly as they do by default,
+and every issue still reports the precise source path of the value that failed.
+
+| `envelope` | Root | Text | Inline media | Remote reference |
+|---|---|---|---|---|
+| `default` | array, `content`, `messages`, or one typed part | `text`, `input_text` | `data`, `*_base64`, data URL | `image_url`, `audio_url`, `video_url` |
+| `anthropic` | `messages[]` | `content` string or `{"type": "text"}` | `{"type": "image", "source": {"type": "base64", "media_type": …, "data": …}}` | `source.type` of `url` |
+| `gemini` | `contents[].parts[]` | `{"text": …}` | `{"inline_data": {"mime_type": …, "data": …}}` | `{"file_data": {"mime_type": …, "file_uri": …}}` |
+| `ollama` | `prompt` with sibling `images`, or `messages[]` with `content` and sibling `images` | `prompt` or `content` string | each `images[]` entry | none |
+
+Deliberate refusals:
+
+- Anthropic `source.type: "file"` is rejected with `unsupported_source`. A Files API `file_id` is
+  neither inline bytes nor a locator, so nothing about it can be validated without fetching.
+- Gemini parts are read as the snake_case fields the REST reference documents. A part must carry
+  exactly one of `text`, `inline_data`, or `file_data`; `function_call`, `thought`, and an empty part
+  are `unsupported_part`. `mime_type` is required on both media containers—without it the part kind
+  is unknowable—and its major type must be `image`, `audio`, or `video`, so `application/pdf` is
+  `unsupported_media_kind`. A relative Files API URI such as `files/abc123` is not an HTTP(S) locator
+  and fails with `url_scheme`.
+- Content blocks that are neither text nor media, such as `tool_use`, `tool_result`, and `thinking`,
+  are rejected rather than skipped.
+- Ollama declares no media type anywhere in its envelope, so the decoded container signature becomes
+  the media type. An image whose leading bytes match no supported signature is rejected with
+  `undeclared_media_type`, and a derived type must still pass the image MIME allowlist. An Ollama
+  image is never a locator: a URL placed in `images[]` fails as invalid Base64.
+
+Ordering deserves an explicit note. Ollama associates images with their text positionally instead of
+interleaving them, so the payload states no order between the two. The adapter fixes one and records
+it here: the text first, then each `images` entry in array order, per prompt and per chat message.
+Manifest ordinals therefore reflect that documented rule rather than an ordering the request itself
+expressed, and JSON key order is never consulted. Every other adapter preserves the order the payload
+really states.
+
 ### Example request
 
 ```json
@@ -187,6 +229,7 @@ Both commands accept:
 | `--max-input-bytes N` | Bound UTF-8 JSON before parsing; defaults to 192 MiB with a 512 MiB hard ceiling. |
 | `--no-signature-check` | Disable best-effort signature comparison; MIME allowlists still apply. |
 | `--allow-url-safe-base64` | Also accept the URL-safe `-`/`_` Base64 alphabet. Standard-only is the default. |
+| `--envelope NAME` | Read `default`, `anthropic`, `gemini`, or `ollama` request shapes. Never auto-detected. |
 
 Allowlisting only validates a reference. Payload Palette never downloads it:
 
@@ -237,6 +280,17 @@ from payload_palette import validate
 issues = validate([{"type": "image", "data": "%%%", "mime_type": "image/png"}])
 for issue in issues:
     print(issue.code, issue.path, issue.message)
+```
+
+To read another vendor's request shape, name it—`NormalizationPolicy(envelope="anthropic")`,
+`"gemini"`, or `"ollama"`. `ENVELOPE_NAMES` lists every accepted value and an unknown one is a
+`ValueError`. The selection is part of the policy, so `normalize`, `validate`, and
+`normalize_json_bytes` all honour it without a separate argument:
+
+```python
+from payload_palette import NormalizationPolicy, normalize
+
+manifest = normalize(anthropic_request, NormalizationPolicy(envelope="anthropic"))
 ```
 
 Custom per-kind size and MIME mappings can be passed to `NormalizationPolicy`; the `text` MIME rule
@@ -306,6 +360,8 @@ Payload Palette assumes the entire JSON document is untrusted.
   and structural-error aggregation are also bounded.
 - Inline content is checked again after decoding and counted against a total request budget.
 - Remote media is default-deny, requires HTTP(S), rejects URL credentials, and requires an exact allowlist match.
+- Envelope adapters are opt-in and named by the caller. An adapter is a shape translation: it adds no
+  new source class and relaxes no size, MIME, signature, or remote-URL rule.
 - Literal loopback, private, link-local, multicast, reserved, unspecified, deprecated 6to4/6a44,
   and ambiguous legacy IPv4
   spellings are rejected consistently across supported Python versions. URL controls, whitespace,
@@ -324,6 +380,10 @@ Payload Palette assumes the entire JSON document is untrusted.
 - Signature checks recognize common headers only; they do not prove a complete or valid file.
 - Remote sizes and content MIME types cannot be confirmed without fetching.
 - Text remains in the manifest and may contain secrets or personal data.
+- The Ollama envelope declares no media type, so its images are classified from the decoded container
+  signature. That one case checks the MIME allowlist after a decode, rather than before it. The
+  decode is still bounded by the same per-kind image ceiling and pre-decode encoded-length check as
+  any other inline image, so no additional work becomes reachable.
 - SHA-256 fingerprints support correlation, not trust or authorization.
 
 Do not use this library as the only control around a network fetcher or media decoder. See [SECURITY.md](SECURITY.md) for private reporting.
@@ -361,7 +421,7 @@ It writes `manifest.json` and `demo.svg`. CI compares those files byte-for-byte 
 
 ## Limitations and roadmap
 
-Version 0.2 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, resolve local paths, mutate requests in place, or submit payloads to a model. URL-safe Base64 is converted only under an explicit opt-in. Inline Base64 is decoded in bounded blocks and never held in full, but standard-library JSON parsing still materializes one bounded document in memory; streaming JSON decode and opt-in adapters for additional envelopes are possible future additions, but will retain the same default-deny resource model.
+Version 0.2 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, resolve local paths, mutate requests in place, or submit payloads to a model. URL-safe Base64 is converted only under an explicit opt-in. Inline Base64 is decoded in bounded blocks and never held in full, but standard-library JSON parsing still materializes one bounded document in memory; streaming JSON decode is a possible future addition that will retain the same default-deny resource model. Opt-in adapters now read the Anthropic Messages, Google Gemini, and Ollama envelopes; a vendor shape is never detected from the document, so the caller always names the envelope.
 
 The repository's benchmark inputs are synthetic and its timing results characterize only the
 recorded machine. Read the [evaluation scope and research limitations](docs/research-limitations.md)
