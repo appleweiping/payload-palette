@@ -13,7 +13,9 @@ from payload_palette.errors import ValidationIssue
 
 JSONScalar: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
-SchemaKind: TypeAlias = Literal["null", "boolean", "integer", "number", "string", "array", "object"]
+SchemaKind: TypeAlias = Literal[
+    "null", "boolean", "integer", "number", "string", "array", "object", "union"
+]
 OutputPath: TypeAlias = tuple[str | int, ...]
 
 
@@ -30,6 +32,7 @@ class OutputLimits:
     max_characters: int = 1_000_000
     max_issues: int = 100
     max_invocations: int = 1_000
+    max_schema_steps: int = 100_000
 
     def __post_init__(self) -> None:
         for name, ceiling in (
@@ -38,6 +41,7 @@ class OutputLimits:
             ("max_characters", 8_000_000),
             ("max_issues", 1_000),
             ("max_invocations", 10_000),
+            ("max_schema_steps", 1_000_000),
         ):
             value = getattr(self, name)
             if type(value) is not int or not 1 <= value <= ceiling:
@@ -127,16 +131,39 @@ class OutputSchema:
     properties: Mapping[str, OutputSchema] = field(default_factory=dict)
     required: tuple[str, ...] = ()
     items: OutputSchema | None = None
-    additional_properties: bool = False
+    additional_properties: bool | OutputSchema = False
     minimum: int | float | None = None
     maximum: int | float | None = None
     min_length: int | None = None
     max_length: int | None = None
     enum: tuple[JSONScalar, ...] | None = None
+    any_of: tuple[OutputSchema, ...] = ()
+    integer_mode: Literal["strict", "json"] = "strict"
 
     def __post_init__(self) -> None:
-        if self.kind not in ("null", "boolean", "integer", "number", "string", "array", "object"):
+        if type(self.integer_mode) is not str or self.integer_mode not in ("strict", "json"):
+            raise ValueError("integer_mode must be strict or json")
+        if self.kind != "integer" and self.integer_mode != "strict":
+            raise ValueError("integer_mode=json requires an integer schema")
+        if self.kind not in (
+            "null",
+            "boolean",
+            "integer",
+            "number",
+            "string",
+            "array",
+            "object",
+            "union",
+        ):
             raise ValueError("unsupported schema kind")
+        if type(self.any_of) is not tuple or any(
+            type(branch) is not OutputSchema for branch in self.any_of
+        ):
+            raise ValueError("any_of must be a tuple of OutputSchema branches")
+        if (self.kind == "union" and not 2 <= len(self.any_of) <= 16) or (
+            self.kind != "union" and self.any_of
+        ):
+            raise ValueError("only union schemas require 2..16 any_of branches")
         if type(self.properties) not in (dict, MappingProxyType) or len(self.properties) > 256:
             raise ValueError("properties must be a mapping with at most 256 entries")
         if any(
@@ -150,7 +177,7 @@ class OutputSchema:
             or len(self.required) > 256
             or any(type(key) is not str or key not in self.properties for key in self.required)
             or len(set(self.required)) != len(self.required)
-            or type(self.additional_properties) is not bool
+            or type(self.additional_properties) not in (bool, OutputSchema)
         ):
             raise ValueError("required must contain unique declared property names")
         if self.kind != "object" and (
@@ -184,7 +211,7 @@ class OutputSchema:
         if self.enum is not None and (
             type(self.enum) is not tuple
             or not 1 <= len(self.enum) <= 256
-            or self.kind in ("object", "array")
+            or self.kind in ("object", "array", "union")
             or any(type(item) is str and len(item) > 2_048 for item in self.enum)
             or any(not self._matches(item) for item in self.enum)
         ):
@@ -206,12 +233,28 @@ class OutputSchema:
             stack.extend((child, depth + 1) for child in schema.properties.values())
             if schema.items is not None:
                 stack.append((schema.items, depth + 1))
+            if type(schema.additional_properties) is OutputSchema:
+                stack.append((schema.additional_properties, depth + 1))
+            stack.extend((branch, depth + 1) for branch in schema.any_of)
+
+    def nullable(self) -> OutputSchema:
+        """Return a schema accepting this contract or JSON null."""
+
+        if self.kind == "null" or any(branch.kind == "null" for branch in self.any_of):
+            return self
+        return OutputSchema("union", any_of=(self, OutputSchema("null")))
 
     def _matches(self, value: object) -> bool:
         return {
             "null": value is None,
             "boolean": type(value) is bool,
-            "integer": type(value) is int and _number(value),
+            "integer": (type(value) is int and _number(value))
+            or (
+                self.integer_mode == "json"
+                and type(value) is float
+                and math.isfinite(value)
+                and value.is_integer()
+            ),
             "number": _number(value),
             "string": _text(value),
             "array": type(value) is list,
@@ -227,6 +270,7 @@ class OutputSchema:
         document = snapshot_json(value, active_limits)
         issues: list[ValidationIssue] = []
         truncated = False
+        steps = 0
 
         def issue(code: str, message: str, path: OutputPath) -> None:
             nonlocal truncated
@@ -236,13 +280,35 @@ class OutputSchema:
                 truncated = True
 
         def visit(schema: OutputSchema, current: JSONValue, path: OutputPath) -> None:
+            nonlocal issues, truncated, steps
             if truncated:
+                return
+            steps += 1
+            if steps > active_limits.max_schema_steps:
+                raise OutputContractError("schema evaluation work limit exceeded")
+            if schema.kind == "union":
+                original_issues, original_truncated = issues, truncated
+                for branch in schema.any_of:
+                    issues, truncated = [], False
+                    try:
+                        visit(branch, current, path)
+                        matched = not issues
+                    finally:
+                        issues, truncated = original_issues, original_truncated
+                    if matched:
+                        return
+                issue("schema_any_of", "value does not satisfy any union branch", path)
                 return
             if not schema._matches(current):
                 issue("schema_type", f"expected {schema.kind}", path)
                 return
             if schema.enum is not None and not any(
-                (schema.kind == "number" or type(current) is type(member)) and current == member
+                (
+                    schema.kind == "number"
+                    or schema.integer_mode == "json"
+                    or type(current) is type(member)
+                )
+                and current == member
                 for member in schema.enum
             ):
                 issue("schema_enum", "value is not a declared enum member", path)
@@ -264,6 +330,8 @@ class OutputSchema:
                 for key, child in current.items():
                     if key in schema.properties:
                         visit(schema.properties[key], child, (*path, key))
+                    elif type(schema.additional_properties) is OutputSchema:
+                        visit(schema.additional_properties, child, (*path, key))
                     elif not schema.additional_properties:
                         issue("schema_extra", "undeclared property", (*path, key))
             elif isinstance(current, list) and schema.items is not None:
@@ -275,18 +343,44 @@ class OutputSchema:
             issues.append(ValidationIssue("schema_issue_limit", "further errors omitted", "$"))
         return tuple(issues)
 
-    def json_schema(self) -> dict[str, JSONValue]:
-        """Export the supported subset as a JSON Schema 2020-12 document."""
+    def json_schema(self, *, preserve_python_types: bool = False) -> dict[str, JSONValue]:
+        """Export a portable projection, or preserve strict integers with an extension.
 
+        Standard JSON Schema integer accepts integral floats. The default portable
+        projection cannot preserve Python int-vs-float representation strictness.
+        Interchange callers can request the x-payload-strict-integer extension.
+        """
+
+        if type(preserve_python_types) is not bool:
+            raise ValueError("preserve_python_types must be a boolean")
+
+        if self.kind == "union":
+            return {
+                "anyOf": [
+                    branch.json_schema(preserve_python_types=preserve_python_types)
+                    for branch in self.any_of
+                ]
+            }
         result: dict[str, JSONValue] = {"type": self.kind}
+        if self.kind == "integer" and self.integer_mode == "strict" and preserve_python_types:
+            result["x-payload-strict-integer"] = True
         if self.kind == "object":
             result.update(
-                properties={key: child.json_schema() for key, child in self.properties.items()},
+                properties={
+                    key: child.json_schema(preserve_python_types=preserve_python_types)
+                    for key, child in self.properties.items()
+                },
                 required=list(self.required),
-                additionalProperties=self.additional_properties,
+                additionalProperties=(
+                    self.additional_properties.json_schema(
+                        preserve_python_types=preserve_python_types
+                    )
+                    if type(self.additional_properties) is OutputSchema
+                    else cast(bool, self.additional_properties)
+                ),
             )
         if self.items is not None:
-            result["items"] = self.items.json_schema()
+            result["items"] = self.items.json_schema(preserve_python_types=preserve_python_types)
         for keyword, value in (("minimum", self.minimum), ("maximum", self.maximum)):
             if value is not None:
                 result[keyword] = value
@@ -296,7 +390,13 @@ class OutputSchema:
         if self.max_length is not None:
             result[f"max{suffix}"] = self.max_length
         if self.enum is not None:
-            result["enum"] = list(self.enum)
+            # Direct constructors historically allow repeated enum members. Emit
+            # unique JSON-schema choices without changing their acceptance set.
+            unique: list[JSONValue] = []
+            for member in self.enum:
+                if member not in unique:
+                    unique.append(member)
+            result["enum"] = unique
         return result
 
 
@@ -304,3 +404,37 @@ def _limits(limits: OutputLimits | None) -> OutputLimits:
     if limits is not None and type(limits) is not OutputLimits:
         raise ValueError("limits must be OutputLimits or None")
     return OutputLimits() if limits is None else limits
+
+
+def _schema_path_possible(
+    schema: OutputSchema, path: OutputPath, *, allow_dynamic: bool = True
+) -> bool:
+    """Check existence in at least one union alternative without inspecting output values."""
+
+    if not path:
+        return True
+    if schema.kind == "union":
+        return any(
+            _schema_path_possible(branch, path, allow_dynamic=allow_dynamic)
+            for branch in schema.any_of
+        )
+    segment, remaining = path[0], path[1:]
+    if schema.kind == "object" and type(segment) is str:
+        if segment in schema.properties:
+            return _schema_path_possible(
+                schema.properties[segment], remaining, allow_dynamic=allow_dynamic
+            )
+        if not allow_dynamic:
+            return False
+        if type(schema.additional_properties) is OutputSchema:
+            return _schema_path_possible(
+                schema.additional_properties, remaining, allow_dynamic=allow_dynamic
+            )
+        return cast(bool, schema.additional_properties)
+    if schema.kind == "array" and type(segment) is int and segment >= 0:
+        if schema.max_length is not None and segment >= schema.max_length:
+            return False
+        return schema.items is not None and _schema_path_possible(
+            schema.items, remaining, allow_dynamic=allow_dynamic
+        )
+    return False

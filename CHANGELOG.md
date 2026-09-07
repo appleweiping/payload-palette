@@ -6,6 +6,10 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added bounded runtime schema interchange, union/nullability and typed-map validation, with
+  explicit strict-Python versus mathematical-JSON integer semantics and faithful Payload exports.
+- Added trusted annotation adapters for primitives, containers, unions, Literal, TypedDict and
+  configured constraints, plus isolated validation and exact-byte-bounded JSON serialization.
 - Added a bounded strict nested JSON schema API for complete structured model output.
 - Added synchronous validator bindings with structured outcomes, reject/fix/filter actions,
   callback and repair validation, final rule verification, and isolated output snapshots.

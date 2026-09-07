@@ -1,5 +1,11 @@
 """Public API for Payload Palette."""
 
+from payload_palette.annotation_adapter import (
+    AnnotationAdapter,
+    FieldConstraints,
+    JSONSerializationOptions,
+    schema_for_annotation,
+)
 from payload_palette.audit import AuditReceipt, audit_manifest
 from payload_palette.batch import (
     BatchRecord,
@@ -58,6 +64,14 @@ from payload_palette.output_validation import (
     ValidationPipeline,
 )
 from payload_palette.policy import NormalizationPolicy, RemoteURLPolicy
+from payload_palette.schema_io import (
+    SCHEMA_DIALECT,
+    SchemaDefinitionError,
+    SchemaDefinitionLimits,
+    export_output_schema,
+    load_output_schema,
+    load_output_schema_json_bytes,
+)
 from payload_palette.streaming import (
     decode_stream,
     normalize_path,
@@ -70,12 +84,15 @@ __all__ = [
     "LARGE_VALUE_PREFIX_CHARACTERS",
     "MAX_INGRESS_INPUT_BYTES",
     "MAX_MODEL_INTEGER_DIGITS",
+    "SCHEMA_DIALECT",
+    "AnnotationAdapter",
     "AsyncGenerationRunner",
     "AsyncModelProvider",
     "AuditReceipt",
     "BatchRecord",
     "BatchReport",
     "EnvelopeName",
+    "FieldConstraints",
     "GeneratedResponse",
     "GenerationAttempt",
     "GenerationFeedback",
@@ -83,6 +100,7 @@ __all__ = [
     "GenerationReport",
     "GenerationRequest",
     "JSONScalar",
+    "JSONSerializationOptions",
     "JSONValue",
     "LargeValue",
     "Manifest",
@@ -102,6 +120,8 @@ __all__ = [
     "RuleContext",
     "RuleOutcome",
     "RuleResult",
+    "SchemaDefinitionError",
+    "SchemaDefinitionLimits",
     "StreamStatistics",
     "StringChoices",
     "TokenUsage",
@@ -112,6 +132,9 @@ __all__ = [
     "compare_manifests",
     "decode_json_bytes",
     "decode_stream",
+    "export_output_schema",
+    "load_output_schema",
+    "load_output_schema_json_bytes",
     "manifest_schema",
     "normalize",
     "normalize_batch",
@@ -119,6 +142,7 @@ __all__ = [
     "normalize_jsonl",
     "normalize_path",
     "normalize_stream",
+    "schema_for_annotation",
     "validate",
 ]
 

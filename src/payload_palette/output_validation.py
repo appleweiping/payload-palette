@@ -16,6 +16,7 @@ from payload_palette.output_schema import (
     OutputLimits,
     OutputPath,
     OutputSchema,
+    _schema_path_possible,
     _text,
     output_path,
     snapshot_json,
@@ -185,24 +186,8 @@ class _CallbackFailure(Exception):
 def _check_binding_path(schema: OutputSchema, binding: RuleBinding) -> None:
     """Reject paths that cannot exist under the declared structural contract."""
 
-    current = schema
-    for segment in binding.path:
-        if current.kind == "object" and type(segment) is str:
-            if segment in current.properties:
-                current = current.properties[segment]
-            elif current.additional_properties:
-                # The undeclared value's shape is intentionally unconstrained.
-                return
-            else:
-                raise ValueError(
-                    f"rule {binding.rule_id!r} targets an undeclared closed-object key"
-                )
-        elif current.kind == "array" and type(segment) is int:
-            if current.max_length is not None and segment >= current.max_length:
-                raise ValueError(f"rule {binding.rule_id!r} targets an impossible array index")
-            current = cast(OutputSchema, current.items)
-        else:
-            raise ValueError(f"rule {binding.rule_id!r} has a path incompatible with the schema")
+    if not _schema_path_possible(schema, binding.path):
+        raise ValueError(f"rule {binding.rule_id!r} has a path incompatible with the schema")
 
 
 @dataclass(frozen=True, slots=True)

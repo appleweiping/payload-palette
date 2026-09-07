@@ -367,6 +367,14 @@ optional-field filtering, and per-field diagnostics. Read the
 [structured output contract](docs/output-validation.md) for ordering, limits, and exceptions, and the
 [reference gap assessment](docs/parity-validation.md) for the remaining repository-level work.
 
+For schema data interchange or trusted Python annotations, use `load_output_schema`,
+`export_output_schema` and `AnnotationAdapter`. Supported types include constrained scalars,
+nullable unions, lists, typed string-key maps, Literal and TypedDict. Unknown schema keywords,
+unresolved annotation strings and recursive definitions are rejected explicitly. Configured JSON
+serialization preserves accepted values with an exact output-byte cap. See the
+[runtime schema/type contract](docs/runtime-schema-types.md) for integer semantics, supported
+subsets and resource bounds, or run `python examples/runtime_schema_adapter.py`.
+
 For generation, implement the asynchronous `AsyncModelProvider.generate(request)` protocol and
 pass it to `AsyncGenerationRunner`. The runner validates each complete JSON response and provides
 bounded field/code feedback for a new attempt when output is invalid. It applies shared attempt,

@@ -54,6 +54,21 @@ def response(text: str, input_tokens: int = 2, output_tokens: int = 1) -> Genera
     return GeneratedResponse(text, TokenUsage(input_tokens, output_tokens))
 
 
+def clock_from_phase_entry(
+    loop: asyncio.AbstractEventLoop, patch: pytest.MonkeyPatch
+) -> Callable[[], None]:
+    """Isolate a lifecycle phase from earlier scheduler delays; then use real elapsed time."""
+    real_time = loop.time
+    initial = real_time()
+    patch.setattr(loop, "time", lambda: initial)
+
+    def enter() -> None:
+        entered_at = real_time()
+        patch.setattr(loop, "time", lambda: initial + (real_time() - entered_at))
+
+    return enter
+
+
 def test_offline_end_to_end_reask_example() -> None:
     report = asyncio.run(run_example())
     assert report["valid"] is True
@@ -443,12 +458,15 @@ def test_user_failure_code_does_not_impersonate_internal_budget_errors() -> None
 
 
 @pytest.mark.parametrize("total", [False, True])
-def test_timeout_cancels_and_awaits_provider_cleanup(total: bool) -> None:
+def test_timeout_cancels_and_awaits_provider_cleanup(
+    total: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     async def scenario() -> None:
         cleaned = asyncio.Event()
 
         class WaitingProvider:
             async def generate(self, request: GenerationRequest) -> GeneratedResponse:
+                start_clock()
                 try:
                     await asyncio.Event().wait()
                 finally:
@@ -458,9 +476,11 @@ def test_timeout_cancels_and_awaits_provider_cleanup(total: bool) -> None:
         policy = GenerationPolicy(
             attempt_timeout_seconds=1 if total else 0.01, total_timeout_seconds=0.01 if total else 1
         )
-        report = await AsyncGenerationRunner(
-            ValidationPipeline(OutputSchema("null")), WaitingProvider(), policy
-        ).run("input")
+        with monkeypatch.context() as clock_patch:
+            start_clock = clock_from_phase_entry(asyncio.get_running_loop(), clock_patch)
+            report = await AsyncGenerationRunner(
+                ValidationPipeline(OutputSchema("null")), WaitingProvider(), policy
+            ).run("input")
         assert report.termination == ("deadline" if total else "timeout")
         assert cleaned.is_set()
         assert not report.usage_complete
@@ -469,12 +489,15 @@ def test_timeout_cancels_and_awaits_provider_cleanup(total: bool) -> None:
 
 
 @pytest.mark.parametrize("total", [False, True])
-def test_internal_timeout_remains_timeout_when_provider_cleanup_raises(total: bool) -> None:
+def test_internal_timeout_remains_timeout_when_provider_cleanup_raises(
+    total: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
     async def scenario() -> None:
         cleaned = asyncio.Event()
 
         class Provider:
             async def generate(self, request: GenerationRequest) -> GeneratedResponse:
+                start_clock()
                 try:
                     await asyncio.Event().wait()
                 finally:
@@ -484,14 +507,138 @@ def test_internal_timeout_remains_timeout_when_provider_cleanup_raises(total: bo
         policy = GenerationPolicy(
             attempt_timeout_seconds=1 if total else 0.01, total_timeout_seconds=0.01 if total else 1
         )
-        report = await AsyncGenerationRunner(
-            ValidationPipeline(OutputSchema("null")), Provider(), policy
-        ).run("input")
+        with monkeypatch.context() as clock_patch:
+            start_clock = clock_from_phase_entry(asyncio.get_running_loop(), clock_patch)
+            report = await AsyncGenerationRunner(
+                ValidationPipeline(OutputSchema("null")), Provider(), policy
+            ).run("input")
         assert report.termination == ("deadline" if total else "timeout")
         assert report.attempts[0].status == "timeout"
         assert cleaned.is_set()
         assert not report.usage_complete
         assert "private cleanup failure" not in str(report.to_dict())
+
+    asyncio.run(scenario())
+
+
+def test_total_deadline_before_provider_admission_requires_no_provider_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        loop = asyncio.get_running_loop()
+        observed_time = 100.0
+        provider = ScriptedProvider([])
+
+        def expire_before_admission() -> None:
+            nonlocal observed_time
+            observed_time = 102.0
+
+        with monkeypatch.context() as clock_patch:
+            clock_patch.setattr(loop, "time", lambda: observed_time)
+            loop.call_soon(expire_before_admission)
+            report = await AsyncGenerationRunner(
+                ValidationPipeline(OutputSchema("null")),
+                provider,
+                GenerationPolicy(total_timeout_seconds=1),
+            ).run("input")
+        assert report.termination == "deadline"
+        assert report.attempts == ()
+        assert report.usage_complete
+        assert provider.requests == []
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("budget", ["attempt", "total", "tie"])
+@pytest.mark.parametrize("cleanup", ["propagate", "error", "timeout", "return"])
+def test_coarse_clock_preserves_the_budget_whose_timer_expired(
+    budget: str, cleanup: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        loop = asyncio.get_running_loop()
+        cleaned = asyncio.Event()
+
+        class Provider:
+            async def generate(self, request: GenerationRequest) -> GeneratedResponse:
+                try:
+                    # Keep a ready callback so the real event loop considers
+                    # scheduled timers before the nominal deadline has elapsed.
+                    await asyncio.sleep(0)
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    if cleanup == "propagate":
+                        raise
+                    if cleanup == "error":
+                        raise RuntimeError("private cleanup failure") from None
+                    if cleanup == "timeout":
+                        raise TimeoutError("private cleanup timeout") from None
+                    return response("null")
+                finally:
+                    cleaned.set()
+                raise AssertionError("unreachable")
+
+        policy = GenerationPolicy(
+            attempt_timeout_seconds=2 if budget == "total" else 1,
+            total_timeout_seconds=2 if budget == "attempt" else 1,
+        )
+        with monkeypatch.context() as coarse_clock:
+            # CPython schedules timers within one clock-resolution window.
+            # Freeze the observed clock and magnify that window to reproduce
+            # early delivery deterministically, without wall-clock races/sleeps.
+            coarse_clock.setattr(loop, "time", lambda: 100.0)
+            coarse_clock.setattr(loop, "_clock_resolution", 3.0)
+            report = await AsyncGenerationRunner(
+                ValidationPipeline(OutputSchema("null")), Provider(), policy
+            ).run("input")
+            assert loop.time() == 100.0
+        assert report.termination == ("timeout" if budget == "attempt" else "deadline")
+        assert report.attempts[0].status == "timeout"
+        assert not report.valid and not report.usage_complete
+        assert report.output is None
+        assert cleaned.is_set()
+        assert "private cleanup" not in str(report.to_dict())
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("cleanup", ["propagate", "error", "timeout", "return"])
+def test_attempt_timeout_cleanup_crossing_total_deadline_preserves_deadline_precedence(
+    cleanup: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def scenario() -> None:
+        loop = asyncio.get_running_loop()
+        observed_time = 100.0
+
+        class Provider:
+            async def generate(self, request: GenerationRequest) -> GeneratedResponse:
+                nonlocal observed_time
+                try:
+                    await asyncio.sleep(0)
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    # The attempt timer was first, but cleanup outlasts the
+                    # whole run. Total exhaustion still takes precedence.
+                    observed_time = 103.0
+                    if cleanup == "propagate":
+                        raise
+                    if cleanup == "error":
+                        raise RuntimeError("cleanup failed") from None
+                    if cleanup == "timeout":
+                        raise TimeoutError("cleanup timed out") from None
+                    return response("null")
+                raise AssertionError("unreachable")
+
+        with monkeypatch.context() as coarse_clock:
+            coarse_clock.setattr(loop, "time", lambda: observed_time)
+            coarse_clock.setattr(loop, "_clock_resolution", 3.0)
+            report = await AsyncGenerationRunner(
+                ValidationPipeline(OutputSchema("null")),
+                Provider(),
+                GenerationPolicy(attempt_timeout_seconds=1, total_timeout_seconds=2),
+            ).run("input")
+        assert report.termination == "deadline"
+        assert report.attempts[0].status == "timeout"
+        assert not report.usage_complete
 
     asyncio.run(scenario())
 
@@ -564,22 +711,36 @@ def test_event_loop_blocking_adapter_cannot_accept_late_output() -> None:
     assert report.termination == "timeout"
 
 
-def test_synchronous_validation_checks_deadline_before_acceptance() -> None:
-    def slow(value: JSONValue, context: RuleContext) -> RuleResult:
-        time.sleep(0.02)
-        return RuleResult(True)
+def test_synchronous_validation_checks_deadline_before_acceptance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        def slow(value: JSONValue, context: RuleContext) -> RuleResult:
+            start_clock()
+            time.sleep(0.02)
+            return RuleResult(True)
 
-    pipeline = ValidationPipeline(OutputSchema("null"), (RuleBinding("slow", (), Callback(slow)),))
-    report = asyncio.run(
-        AsyncGenerationRunner(
-            pipeline,
-            ScriptedProvider([response("null")]),
-            GenerationPolicy(total_timeout_seconds=0.005),
-        ).run("input")
-    )
-    assert report.termination == "deadline"
-    assert report.reported_tokens == 3
-    assert report.usage_complete
+        class ImmediateProvider:
+            async def generate(self, request: GenerationRequest) -> GeneratedResponse:
+                # This case targets validation overrunning the budget, not
+                # a provider or pre-admission timeout before validation starts.
+                return response("null")
+
+        pipeline = ValidationPipeline(
+            OutputSchema("null"), (RuleBinding("slow", (), Callback(slow)),)
+        )
+        with monkeypatch.context() as clock_patch:
+            start_clock = clock_from_phase_entry(asyncio.get_running_loop(), clock_patch)
+            report = await AsyncGenerationRunner(
+                pipeline,
+                ImmediateProvider(),
+                GenerationPolicy(total_timeout_seconds=0.005),
+            ).run("input")
+        assert report.termination == "deadline"
+        assert report.reported_tokens == 3
+        assert report.usage_complete
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("value", [None, 1, "\ud800", "long"])

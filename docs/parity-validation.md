@@ -37,14 +37,14 @@ these rows has been promoted to whole-reference equivalence.
 
 | Capability | Current evidence | Status / remaining acceptance work |
 |---|---|---|
-| Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py` | Partial: seven JSON types, homogeneous arrays, properties, required/extra keys, scalar enums, numeric/length bounds. Add recursive references, unions/discriminators and full schema dialect test corpus. |
-| Schema generation and Python type system | `OutputSchema.json_schema()` | Partial: supported keyword export only. Python annotations, generic models, forward references, dataclasses, callable validation, aliases and rich standard types remain open. |
+| Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py` | Partial: JSON types, homogeneous arrays, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded anyOf/nullability. Recursive references, discriminators and full schema dialect test corpus remain open. |
+| Schema generation and Python type system | `AnnotationAdapter`, `schema_for_annotation`, `tests/test_annotation_adapter.py` | Partial: strict primitives, list/dict, unions, Literal, TypedDict and explicit Annotated constraints; integer representation distinguished from JSON mathematical semantics. Generic models, forward references, dataclasses, callable validation, aliases and rich standard types remain open. |
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
 | Async and concurrency | Actual asynchronous provider protocol, cooperative deadlines/cancellation, concurrent-run isolation tests | Partial: sequential per-run lifecycle with shared budgets and explicit cancellation behavior. Async semantic validators, bounded parallel field scheduling, isolated workers and distributed execution remain open. |
 | Incremental output validation | Existing media ingress streaming is a different boundary | Open: chunk/state protocol, incomplete JSON handling, incremental rule state and differential whole-document equivalence. |
 | Model/tool/schema integration | Existing request envelope adapters normalize multimodal input | Open: output tool-call/schema contracts, schema-driven generation, provider adapter verification. |
-| Runtime schema import and rich serialization | Strict JSON ingress and fresh output report serialization | Partial: configured schema/pipeline interchange, version migration, validators/serializers and interoperability tests remain open. |
+| Runtime schema import and rich serialization | `load_output_schema`, `export_output_schema`, configured `AnnotationAdapter.dump_json`, strict JSON ingress | Partial: strict bounded keyword import/export, immutable snapshots and exact-byte JSON presentation options. Full dialects, pipeline interchange, version migration, custom serializers and broad cross-engine interoperability remain open. |
 | History, metrics, tracing and privacy | Bounded immutable rule outcomes and generation/re-ask history; raw output/instruction/validator prose excluded from generation history | Partial: local per-attempt token/response/callback accounting and declared-path feedback. Persistent lineage, richer redaction policy, execution metrics and opt-in trace exporters remain open. |
 | CLI / deployment | Existing request CLI; executable `examples/validate_model_output.py` | Partial: output validation CLI with declarative configuration, service API, deployment examples and service-level tests remain open. |
 | Performance / implementation scale | Dependency-free Python implementation; existing ingress benchmarks | Open: representative schema/validator benchmarks, first-party reference differential measurements, compiled acceleration decisions and independently audited scale inventory. |
@@ -67,6 +67,14 @@ configuration. Independent review also added regressions for impossible closed-s
 internal deadline cleanup failures and malformed-coroutine cleanup errors. The contract explicitly
 excludes hard callback preemption and provider billing claims.
 
+The third slice adds strict runtime schema data import/export, bounded unions/nullability and typed
+additional properties, trusted annotation compilation and configured JSON serialization. Tests cover
+independent keyword vectors, unknown keys, malformed definitions/annotations, snapshot isolation,
+cycles, branch/depth/node/character/work budgets, exact Unicode byte caps, and pipeline/generation
+integration. JSON Schema integer semantics are tested separately from strict Python annotations;
+Payload's interchange extension preserves that otherwise nonportable representation distinction.
+This is not full Pydantic type support or a full JSON Schema interpreter.
+
 Run the same commands used for repository CI:
 
 ```bash
@@ -85,14 +93,15 @@ The presence of this assessment does not itself satisfy those gates.
 
 ## Local verification snapshot
 
-On Windows / Python 3.14.5, the completed suite passed **1024 tests** with **97.72% combined
-statement/branch coverage**. The new schema and pipeline modules each reported 99% coverage;
-the asynchronous generation module reported 97%. Ruff lint and formatting, strict Mypy, Bandit,
-both executable output examples, the existing demo comparison, wheel/sdist build, Twine checks and
-wheel-content checks passed. This is local evidence; remote CI for this uncommitted
-implementation has not been run or claimed.
+On Windows / Python 3.14.5, the completed suite passed **1198 tests** with **97.95% combined
+statement/branch coverage**. Python 3.12.0 independently passed the same 1198 tests. Schema and
+annotation-adapter modules reported 100% coverage; schema interchange and pipeline reported 99%,
+and asynchronous generation reported 97%. Ruff lint and formatting, strict Mypy, Bandit, all three
+executable output examples, the existing demo comparison, wheel/sdist build, Twine checks,
+wheel-content checks and isolated built-wheel schema/annotation smoke passed. This is local
+evidence; remote CI for this uncommitted implementation has not been run or claimed.
 
-The local source inventory has 18 Python files (4999 nonblank lines); tests have 18 Python files
-(4294 nonblank lines), counted with `rg --files` and PowerShell `Measure-Object -Line`. These counts
+The local source inventory has 20 Python files (5748 nonblank lines); tests have 20 Python files
+(4879 nonblank lines), counted with `rg --files` and PowerShell `Measure-Object -Line`. These counts
 include existing ingress functionality and the new output slice. They remain substantially below
 the reference repository inventories above; test count and coverage do not erase that scope gap.

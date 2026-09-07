@@ -10,7 +10,13 @@ from dataclasses import dataclass, field, replace
 from typing import Literal, Protocol, cast
 
 from payload_palette.errors import PayloadValidationError, ValidationIssue
-from payload_palette.output_schema import JSONValue, OutputContractError, OutputSchema, _text
+from payload_palette.output_schema import (
+    JSONValue,
+    OutputContractError,
+    OutputSchema,
+    _schema_path_possible,
+    _text,
+)
 from payload_palette.output_validation import ValidationPipeline
 
 AttemptStatus = Literal[
@@ -229,7 +235,7 @@ def _declared_path(path: str, schema: OutputSchema) -> str:
     if not path.startswith("$") or len(path) > 2_048:
         return "$"
     position = 1
-    current = schema
+    segments: list[str | int] = []
     decoder = json.JSONDecoder()
     while position < len(path):
         if path[position] != "[":
@@ -240,19 +246,11 @@ def _declared_path(path: str, schema: OutputSchema) -> str:
             return "$"
         if end >= len(path) or path[end] != "]":
             return "$"
-        if type(segment) is str and current.kind == "object" and segment in current.properties:
-            current = current.properties[segment]
-        elif (
-            type(segment) is int
-            and segment >= 0
-            and current.kind == "array"
-            and current.items is not None
-        ):
-            current = current.items
-        else:
+        if type(segment) not in (str, int):
             return "$"
+        segments.append(segment)
         position = end + 1
-    return path
+    return path if _schema_path_possible(schema, tuple(segments), allow_dynamic=False) else "$"
 
 
 def _feedback(
@@ -386,9 +384,12 @@ class AsyncGenerationRunner:
                 feedback,
                 schema_json,
             )
-            timeout_seconds = min(self.policy.attempt_timeout_seconds, remaining_time)
-            attempt_deadline = loop.time() + timeout_seconds
-            timeout = asyncio.timeout(timeout_seconds)
+            attempt_deadline = min(loop.time() + self.policy.attempt_timeout_seconds, deadline)
+            deadline_limited = attempt_deadline == deadline
+            # Asyncio can deliver timers one clock-resolution window early.
+            # Preserve which budget armed the timer rather than inferring its
+            # cause solely from a later (possibly coarse) clock observation.
+            timeout = asyncio.timeout_at(attempt_deadline)
             try:
                 async with timeout:
                     response = await self.provider.generate(request)
@@ -397,7 +398,9 @@ class AsyncGenerationRunner:
                 usage_complete = False
                 if timeout.expired():
                     append("timeout")
-                    return report("deadline" if loop.time() >= deadline else "timeout")
+                    return report(
+                        "deadline" if deadline_limited or loop.time() >= deadline else "timeout"
+                    )
                 append("provider_error")
                 return report("provider_error")
             except Exception:
@@ -405,7 +408,9 @@ class AsyncGenerationRunner:
                 usage_complete = False
                 if timeout.expired():
                     append("timeout")
-                    return report("deadline" if loop.time() >= deadline else "timeout")
+                    return report(
+                        "deadline" if deadline_limited or loop.time() >= deadline else "timeout"
+                    )
                 append("provider_error")
                 return report("provider_error")
             _propagate_cancellation()
@@ -413,7 +418,9 @@ class AsyncGenerationRunner:
             if timeout.expired() or loop.time() >= attempt_deadline:
                 usage_complete = False
                 append("timeout")
-                return report("deadline" if loop.time() >= deadline else "timeout")
+                return report(
+                    "deadline" if deadline_limited or loop.time() >= deadline else "timeout"
+                )
             try:
                 if inspect.iscoroutine(response):
                     response.close()
