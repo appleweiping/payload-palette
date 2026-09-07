@@ -10,13 +10,13 @@ python examples/validate_model_output.py
 
 ## Schema contract
 
-`OutputSchema` accepts `null`, `boolean`, `integer`, `number`, `string`, `array`, and `object`.
-There is no implicit coercion. In particular, booleans are not numbers, `1.0` is not an integer,
+`OutputSchema` accepts `null`, `boolean`, `integer`, `number`, `string`, `array`, `object`, and `union`.
+There is no implicit coercion. By default, booleans are not numbers, `1.0` is not an integer,
 and `"0.8"` is not a number. Numbers must be finite. Integers have at most 850 magnitude bits
 (a conservative bound compatible with the ingress integer-length limit).
 
 Object schemas declare `properties`, a tuple of `required` names, and an explicit
-`additional_properties` flag (default false). Arrays require one `items` schema. Numeric schemas
+`additional_properties` flag or schema (default false). Arrays require one `items` schema. Numeric schemas
 support inclusive `minimum` and `maximum`; strings and arrays support `min_length` and `max_length`.
 Scalar `enum` values must have the declared type. A `number` enum compares integer and float values
 by numeric equality; other scalar enums also require the exact JSON type.
@@ -25,11 +25,13 @@ Schema configuration is immutable and property mappings are copied. Schemas reje
 types, inapplicable constraints, reversed bounds, undeclared/duplicate required names, more than
 256 object properties or enum members, enum strings longer than 2048 characters, more than 32 levels,
 more than 4096 expanded nodes, or more than one million characters in expanded names and enum values.
-`json_schema()` exports this supported keyword subset as fresh JSON-compatible data. It does not
-import arbitrary JSON Schema, resolve references, implement unions, or generate Python classes.
-The Python integer check is stricter than JSON Schema's mathematical integer definition: other
-JSON Schema validators may accept `1.0` where this API requires a Python `int`. Exported keywords
-do not encode this host-language distinction or the runtime resource budgets.
+Unions use 2–16 `any_of` alternatives; `nullable()` adds a null alternative. A successful alternative
+accepts the value; failed branch errors collapse to `schema_any_of`. Candidate work shares one budget.
+The [runtime schema/type API](runtime-schema-types.md) adds strict supported-keyword import/export
+and trusted annotation compilation. Imported integer schemas use JSON Schema's mathematical integer
+semantics and accept integral floats; direct Python schemas remain strict by default.
+`json_schema()` exports a portable projection; `export_output_schema()` preserves the Python integer
+distinction using a documented extension. Neither encodes runtime resource budgets.
 
 `schema.validate(value)` returns specific `ValidationIssue` paths such as `$["scores"][2]`.
 Errors preserve input object order; missing required fields follow declared required order.
@@ -47,7 +49,8 @@ object-key/array-index types, and indices excluded by a declared maximum array l
 configuration errors. This prevents misspelled bindings from silently bypassing validation.
 An undeclared member of an object with `additional_properties=True` has unknown shape, so syntactically
 valid paths below it are allowed and skip when the actual shape does not contain the target. Declared
-properties remain checked even on an open object. There is no wildcard selection in this version.
+properties remain checked even on an open object. Typed additional properties are path-checked,
+and a union path must be possible in at least one alternative. There is no wildcard selection.
 
 Return `RuleResult(True)` to accept. Return `RuleResult(False, code, message)` to fail, optionally
 providing a fourth `fix` argument. Failures require lowercase stable identifiers and bounded messages.
@@ -95,6 +98,7 @@ these records to a telemetry service.
 | Total characters in strings and object keys | 1,000,000 | 8,000,000 |
 | Stored validation issues | 100 | 1,000 |
 | Callback invocations, all phases combined | 1,000 | 10,000 |
+| Schema/value steps, shared across union branches per validation pass | 100,000 | 1,000,000 |
 | Pipeline bindings | 256 | 256 |
 
 Each snapshot accepts only exact built-in JSON scalar/list/dict types. It rejects cycles, custom
