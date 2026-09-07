@@ -4,7 +4,16 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Added
+
+- Added a bounded strict nested JSON schema API for complete structured model output.
+- Added synchronous validator bindings with structured outcomes, reject/fix/filter actions,
+  callback and repair validation, final rule verification, and isolated output snapshots.
+- Added a provider-independent executable model-output validation example and an explicit
+  reference repository gap assessment. Full reference repository parity remains open.
+- Added an actual asynchronous model-provider protocol and bounded generate/validate/re-ask lifecycle
+  with cooperative deadlines, propagated cancellation, shared usage/response/validator budgets,
+  privacy-minimized attempt histories, and deterministic offline adapter examples and tests.
 
 ## [0.5.0] - 2026-09-07
 
