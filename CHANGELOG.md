@@ -4,6 +4,19 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ## [Unreleased]
 
+_The next release is prepared from the 0.4.0 expansion below._
+
+## [0.4.0] - 2026-09-07
+
+### Added
+
+- Added bounded batch normalization for offline dataset and queue preflight
+  workflows. Records are normalized independently, structured failures are
+  retained, and a canonical input SHA-256 is emitted.
+- Added a JSON Schema descriptor for manifest interchange and a JSONL loader
+  that reuses the strict ingress parser. No remote media is fetched and no
+  binary content is retained in batch results.
+
 ## [0.3.0] - 2026-09-07
 
 ### Added

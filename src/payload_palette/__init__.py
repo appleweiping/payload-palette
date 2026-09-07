@@ -1,5 +1,12 @@
 """Public API for Payload Palette."""
 
+from payload_palette.batch import (
+    BatchRecord,
+    BatchReport,
+    manifest_schema,
+    normalize_batch,
+    normalize_jsonl,
+)
 from payload_palette.errors import OutputError, PayloadValidationError, ValidationIssue
 from payload_palette.ingress import (
     DEFAULT_MAX_INPUT_BYTES,
@@ -31,6 +38,8 @@ __all__ = [
     "LARGE_VALUE_PREFIX_CHARACTERS",
     "MAX_INGRESS_INPUT_BYTES",
     "MAX_MODEL_INTEGER_DIGITS",
+    "BatchRecord",
+    "BatchReport",
     "EnvelopeName",
     "LargeValue",
     "Manifest",
@@ -43,11 +52,14 @@ __all__ = [
     "ValidationIssue",
     "decode_json_bytes",
     "decode_stream",
+    "manifest_schema",
     "normalize",
+    "normalize_batch",
     "normalize_json_bytes",
+    "normalize_jsonl",
     "normalize_path",
     "normalize_stream",
     "validate",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

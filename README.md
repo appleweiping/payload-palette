@@ -56,6 +56,8 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
 - Returns structured errors with stable codes, JSON paths, messages, and optional remediation hints.
 - Writes manifest files through same-directory atomic replacement and reports stdout failures cleanly.
 - Includes a typed Python API and `validate` / `normalize` CLI commands.
+- Provides `normalize_batch()` / `normalize_jsonl()` for bounded offline
+  dataset audits and `manifest_schema()` for versioned manifest interchange.
 - Has no runtime dependencies.
 
 ## Installation
