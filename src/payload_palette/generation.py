@@ -384,9 +384,12 @@ class AsyncGenerationRunner:
                 feedback,
                 schema_json,
             )
-            timeout_seconds = min(self.policy.attempt_timeout_seconds, remaining_time)
-            attempt_deadline = loop.time() + timeout_seconds
-            timeout = asyncio.timeout(timeout_seconds)
+            attempt_deadline = min(loop.time() + self.policy.attempt_timeout_seconds, deadline)
+            deadline_limited = attempt_deadline == deadline
+            # Asyncio can deliver timers one clock-resolution window early.
+            # Preserve which budget armed the timer rather than inferring its
+            # cause solely from a later (possibly coarse) clock observation.
+            timeout = asyncio.timeout_at(attempt_deadline)
             try:
                 async with timeout:
                     response = await self.provider.generate(request)
@@ -395,7 +398,9 @@ class AsyncGenerationRunner:
                 usage_complete = False
                 if timeout.expired():
                     append("timeout")
-                    return report("deadline" if loop.time() >= deadline else "timeout")
+                    return report(
+                        "deadline" if deadline_limited or loop.time() >= deadline else "timeout"
+                    )
                 append("provider_error")
                 return report("provider_error")
             except Exception:
@@ -403,7 +408,9 @@ class AsyncGenerationRunner:
                 usage_complete = False
                 if timeout.expired():
                     append("timeout")
-                    return report("deadline" if loop.time() >= deadline else "timeout")
+                    return report(
+                        "deadline" if deadline_limited or loop.time() >= deadline else "timeout"
+                    )
                 append("provider_error")
                 return report("provider_error")
             _propagate_cancellation()
@@ -411,7 +418,9 @@ class AsyncGenerationRunner:
             if timeout.expired() or loop.time() >= attempt_deadline:
                 usage_complete = False
                 append("timeout")
-                return report("deadline" if loop.time() >= deadline else "timeout")
+                return report(
+                    "deadline" if deadline_limited or loop.time() >= deadline else "timeout"
+                )
             try:
                 if inspect.iscoroutine(response):
                     response.close()
