@@ -336,6 +336,26 @@ running policy.
 
 ## Manifest format
 
+### Comparing and auditing manifests
+
+Cache layers can compare two normalized requests without diffing arbitrary JSON:
+
+```python
+from payload_palette import audit_manifest, compare_manifests, normalize
+
+before = normalize([{"type": "text", "text": "hello"}])
+after = normalize([{"type": "text", "text": "hello"}, {"type": "text", "text": "world"}])
+change = compare_manifests(before, after)
+print(change.append_compatible, change.changed_paths, change.added_ordinals)
+
+# The audit receipt never retains text, inline bytes, or URL query/fragment data.
+receipt = audit_manifest(after).to_dict()
+```
+
+`append_compatible` is true only when all existing ordinals are unchanged and new parts
+are appended. This is a cache hint, not a statement that downstream model output will
+be equivalent.
+
 The top-level manifest contains:
 
 - `schema_version`: currently `1.0`;

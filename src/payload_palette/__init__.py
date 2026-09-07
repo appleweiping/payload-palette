@@ -1,5 +1,6 @@
 """Public API for Payload Palette."""
 
+from payload_palette.audit import AuditReceipt, audit_manifest
 from payload_palette.batch import (
     BatchRecord,
     BatchReport,
@@ -7,6 +8,7 @@ from payload_palette.batch import (
     normalize_batch,
     normalize_jsonl,
 )
+from payload_palette.diff import ManifestDifference, compare_manifests
 from payload_palette.errors import OutputError, PayloadValidationError, ValidationIssue
 from payload_palette.ingress import (
     DEFAULT_MAX_INPUT_BYTES,
@@ -38,11 +40,13 @@ __all__ = [
     "LARGE_VALUE_PREFIX_CHARACTERS",
     "MAX_INGRESS_INPUT_BYTES",
     "MAX_MODEL_INTEGER_DIGITS",
+    "AuditReceipt",
     "BatchRecord",
     "BatchReport",
     "EnvelopeName",
     "LargeValue",
     "Manifest",
+    "ManifestDifference",
     "NormalizationPolicy",
     "NormalizedPart",
     "OutputError",
@@ -50,6 +54,8 @@ __all__ = [
     "RemoteURLPolicy",
     "StreamStatistics",
     "ValidationIssue",
+    "audit_manifest",
+    "compare_manifests",
     "decode_json_bytes",
     "decode_stream",
     "manifest_schema",
@@ -62,4 +68,4 @@ __all__ = [
     "validate",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

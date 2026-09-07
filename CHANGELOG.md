@@ -4,7 +4,14 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ## [Unreleased]
 
-_The next release is prepared from the 0.4.0 expansion below._
+No unreleased changes.
+
+## [0.5.0] - 2026-09-07
+
+### Added
+
+- Added deterministic manifest comparison diagnostics for cache and adapter compatibility checks.
+- Added redacted audit receipts that retain identity and sizing facts without text or URL secrets.
 
 ## [0.4.0] - 2026-09-07
 
