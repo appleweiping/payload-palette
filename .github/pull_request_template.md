@@ -15,5 +15,5 @@ Describe the user-visible contract change and why it is needed.
 - [ ] `python -m ruff format --check .`
 - [ ] `python -m pytest --cov=payload_palette --cov-branch`
 - [ ] `python examples/build_demo.py --output-dir demo-output --check`
-- [ ] `python -m build`
+- [ ] `python -m build --no-isolation`
 - [ ] Documentation and changelog updated

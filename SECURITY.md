@@ -26,6 +26,11 @@ object. URL validation rejects syntactically ambiguous local-address spellings, 
 fetchers must still resolve, pin, and re-check every address and redirect to defend against DNS
 rebinding.
 
+Public manifest construction nevertheless consumes no more than 1,000,001 part entries and no more
+than 65 attribute entries before rejecting an over-limit custom container. It snapshots nested parts
+and revalidates the complete snapshot before serialization, so a forged length or post-construction
+`object.__setattr__` mutation cannot silently produce a non-canonical manifest.
+
 Programmatic HTTP integrations should pass raw bytes through `decode_json_bytes()` or
 `normalize_json_bytes()` so strict JSON checks are not lost. Server-side limits and the split of
 responsibilities are documented in [API ingress integration](docs/ingress-integration.md) and the

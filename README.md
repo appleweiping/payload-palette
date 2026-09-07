@@ -38,9 +38,10 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
   payload that mixes the two alphabets.
 - Decodes inline Base64 in bounded 64 KiB blocks and folds each block into a size, digest, and
   signature prefix, so peak memory no longer grows with the decoded payload.
-- Decodes JSON incrementally on request, so a whole request never has to be held at once. Peak
-  memory then follows the structure of the request rather than the size of its media: measured
-  on one inline PNG, the same 1.5 MB whether the image is 1 MiB or 32 MiB.
+- Decodes JSON incrementally on request without buffering the complete raw body. Ordinary request
+  structure and accepted text are still materialized, while long media strings become bounded
+  summaries. Peak memory then follows the retained structure rather than media size: measured on
+  one inline PNG, the same 1.5 MB whether the image is 1 MiB or 32 MiB.
 - Bounds data URL headers before parameter parsing and checks MIME policy before Base64 decoding.
 - Rejects duplicate JSON keys, non-standard numeric constants, excessive nesting, and isolated
   Unicode surrogates.
@@ -233,7 +234,7 @@ Both commands accept:
 | `--no-signature-check` | Disable best-effort signature comparison; MIME allowlists still apply. |
 | `--allow-url-safe-base64` | Also accept the URL-safe `-`/`_` Base64 alphabet. Standard-only is the default. |
 | `--envelope NAME` | Read `default`, `anthropic`, `gemini`, or `ollama` request shapes. Never auto-detected. |
-| `--stream` | Decode incrementally instead of buffering the request. Same manifest, bounded memory. |
+| `--stream` | Decode incrementally; large encoded strings are summarized, while ordinary structure and accepted text remain materialized. |
 
 Allowlisting only validates a reference. Payload Palette never downloads it:
 
@@ -340,7 +341,7 @@ The top-level manifest contains:
 - `part_count` and `inline_bytes` resource summaries;
 - `parts`: safe normalized entries in input order.
 
-Each part records its input `path`, `kind`, source class, and fingerprint. Inline media records decoded byte length and MIME type but not Base64; its bytes are hashed and measured block by block and are never retained in full. Text is retained because it is the semantic prompt; applications that treat prompt text as sensitive should apply their own logging redaction before persisting manifests. A remote part contains a normalized locator but no claimed byte length because nothing was fetched. Manifest shells, their part tuple, and attribute mappings are immutable snapshots; every `to_dict()` call returns a fresh mutable copy.
+Each part records its input `path`, `kind`, source class, and fingerprint. Inline media records decoded byte length and MIME type but not Base64; its bytes are hashed and measured block by block and are never retained in full. Text is retained because it is the semantic prompt; applications that treat prompt text as sensitive should apply their own logging redaction before persisting manifests. A remote part contains a normalized locator but no claimed byte length because nothing was fetched. Manifest shells, every nested part, and attribute mappings are immutable snapshots; every `to_dict()` call revalidates that snapshot and returns a fresh mutable copy. Direct model construction accepts at most the policy hard ceiling of 1,000,000 parts and 64 presentation attributes per part, without trusting a custom container's reported length.
 
 Fingerprints identify normalized byte equality; they are not authenticity proofs. Remote fingerprints
 cover a deliberately scoped RFC 3986 canonical form, including any query that was redacted from
@@ -454,7 +455,7 @@ It writes `manifest.json` and `demo.svg`. CI compares those files byte-for-byte 
 
 ## Limitations and roadmap
 
-Version 0.2 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, resolve local paths, mutate requests in place, or submit payloads to a model. URL-safe Base64 is converted only under an explicit opt-in. Inline Base64 is decoded in bounded blocks and never held in full, and JSON can now be decoded incrementally too, so no part of a request has to be materialized: `normalize_stream` and `--stream` apply the identical default-deny resource model and produce the identical manifest. Streaming remains opt-in, because the two paths can name different issue codes for a document that breaks more than one rule at once; [docs/streaming.md](docs/streaming.md) gives the worked example and the differential evidence. Opt-in adapters now read the Anthropic Messages, Google Gemini, and Ollama envelopes; a vendor shape is never detected from the document, so the caller always names the envelope.
+Version 0.3 focuses on a small, auditable ingress contract. It does not fetch URLs, inspect full media containers, resolve local paths, mutate requests in place, or submit payloads to a model. URL-safe Base64 is converted only under an explicit opt-in. Inline Base64 is decoded in bounded blocks and its large encoded value need not be held in full on the streaming path. Ordinary request structure and accepted text are still materialized. `normalize_stream` and `--stream` apply the identical default-deny resource model and produce the identical manifest. Streaming remains opt-in, because the two paths can name different issue codes for a document that breaks more than one rule at once; [docs/streaming.md](docs/streaming.md) gives the worked example and the differential evidence. Opt-in adapters now read the Anthropic Messages, Google Gemini, and Ollama envelopes; a vendor shape is never detected from the document, so the caller always names the envelope.
 
 The repository's benchmark inputs are synthetic and its timing results characterize only the
 recorded machine. Read the [evaluation scope and research limitations](docs/research-limitations.md)
@@ -489,7 +490,7 @@ python -m ruff check .
 python -m ruff format --check .
 python -m pytest --cov=payload_palette --cov-branch
 python benchmarks/benchmark_ingress.py --repeats 3 --operations 2
-python -m build
+python -m build --no-isolation
 ```
 
 Tests cover ordering, malformed envelopes, malformed Base64 and data URLs, MIME conflicts, decoded-size and aggregate budgets, URL allowlists, private addresses, query redaction, structured CLI failures, and reproducible manifests. Contributions are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), the [release verification guide](docs/releases.md), and [citation metadata](CITATION.cff).

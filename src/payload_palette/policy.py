@@ -11,7 +11,7 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from payload_palette.errors import PayloadValidationError, problem
 from payload_palette.media import normalize_mime_type
-from payload_palette.models import ENVELOPE_NAMES, EnvelopeName, PartKind
+from payload_palette.models import ENVELOPE_NAMES, MAX_POLICY_PARTS, EnvelopeName, PartKind
 
 _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _LEGACY_IPV4 = re.compile(
@@ -22,7 +22,6 @@ _PERCENT_ESCAPE = re.compile(r"[0-9a-fA-F]{2}")
 _UNRESERVED = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
 _PART_KINDS = frozenset({"text", "image", "audio", "video"})
 
-MAX_POLICY_PARTS = 1_000_000
 MAX_POLICY_TEXT_CHARACTERS = 100_000_000
 MAX_POLICY_BYTES = 1024 * 1024 * 1024
 MAX_REMOTE_URL_CHARACTERS = 16_384

@@ -1,6 +1,7 @@
 # Streaming ingress
 
-Payload Palette can validate a request without ever holding it.
+Payload Palette can validate a request stream without retaining the entire byte
+body or a large encoded media value.
 
 `normalize_json_bytes` needs the body, its decoded text, and the parsed document
 at the same time. For a request carrying one large inline image that is roughly

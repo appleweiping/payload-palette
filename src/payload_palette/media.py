@@ -306,6 +306,16 @@ class Base64Summary:
     digest: str
     signature_prefix: bytes
 
+    def __post_init__(self) -> None:
+        if type(self.byte_length) is not int or self.byte_length < 1:
+            raise ValueError("byte_length must be a positive integer")
+        if not isinstance(self.digest, str) or not re.fullmatch(r"[0-9a-f]{64}", self.digest):
+            raise ValueError("digest must be a lowercase SHA-256 hex digest")
+        if type(self.signature_prefix) is not bytes:
+            raise ValueError("signature_prefix must be bytes")
+        if len(self.signature_prefix) != min(SIGNATURE_PREFIX_BYTES, self.byte_length):
+            raise ValueError("signature_prefix length must match the summarized payload")
+
 
 class Base64Digester:
     """Fold streamed Base64 text into a summary without retaining the payload.

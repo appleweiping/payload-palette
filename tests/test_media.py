@@ -9,6 +9,7 @@ from payload_palette.media import (
     BASE64_BLOCK_CHARACTERS,
     MAX_DATA_URL_HEADER_CHARACTERS,
     SIGNATURE_PREFIX_BYTES,
+    Base64Summary,
     decode_base64,
     decode_data_url,
     detect_mime_type,
@@ -20,6 +21,28 @@ from payload_palette.media import (
 def _repeating_bytes(size: int) -> bytes:
     pattern = b"\x89PNG\r\n\x1a\npayload-palette\x00\xfb\xf0"
     return (pattern * (size // len(pattern) + 1))[:size]
+
+
+@pytest.mark.parametrize(
+    ("byte_length", "digest", "signature_prefix", "message"),
+    [
+        (0, "0" * 64, b"", "byte_length"),
+        (True, "0" * 64, b"x", "byte_length"),
+        (1, "A" * 64, b"x", "digest"),
+        (1, "0" * 63, b"x", "digest"),
+        (1, "0" * 64, bytearray(b"x"), "bytes"),
+        (2, "0" * 64, b"x", "length"),
+        (13, "0" * 64, b"x" * 13, "length"),
+    ],
+)
+def test_base64_summary_rejects_inconsistent_direct_construction(
+    byte_length: object,
+    digest: object,
+    signature_prefix: object,
+    message: str,
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        Base64Summary(byte_length, digest, signature_prefix)  # type: ignore[arg-type]
 
 
 def test_decodes_padded_and_unpadded_base64() -> None:

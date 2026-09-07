@@ -30,7 +30,7 @@ jobs:
           - os: ubuntu-latest
             python-version: "3.14"
           - os: windows-latest
-            python-version: "3.14"
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -38,26 +38,29 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install package and development tools
-        run: python -m pip install -e ".[dev]"
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.11.21"
+          enable-cache: false
+      - name: Synchronize locked test environment
+        run: uv sync --frozen --extra dev
       - name: Lint
-        run: python -m ruff check .
+        run: uv run --frozen --extra dev python -m ruff check .
       - name: Format check
-        run: python -m ruff format --check .
+        run: uv run --frozen --extra dev python -m ruff format --check .
       - name: Type check
-        run: python -m mypy
+        run: uv run --frozen --extra dev python -m mypy
       - name: Security scan
-        run: python -m bandit -q -c pyproject.toml -r src
+        run: uv run --frozen --extra dev python -m bandit -q -c pyproject.toml -r src
       - name: Test with branch coverage
-        run: python -m pytest --cov=payload_palette --cov-branch --cov-report=term-missing
+        run: uv run --frozen --extra dev python -m pytest --cov=payload_palette --cov-branch --cov-report=term-missing
       - name: Verify generated demo
-        run: python examples/build_demo.py --output-dir demo-output --check
+        run: uv run --frozen --extra dev python examples/build_demo.py --output-dir demo-output --check
       - name: Smoke-test benchmark protocol
         if: matrix.python-version == '3.14'
-        run: python benchmarks/benchmark_ingress.py --repeats 3 --operations 2 --output benchmark-output.json
+        run: uv run --frozen --extra dev python benchmarks/benchmark_ingress.py --repeats 3 --operations 2 --output benchmark-output.json
       - name: Build distributions
-        run: python -m build
+        run: uv run --frozen --extra dev python -m build --no-isolation
 
   gate:
     name: CI gate

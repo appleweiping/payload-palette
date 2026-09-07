@@ -4,6 +4,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-07
+
 ### Added
 
 - Opt-in envelope adapters for the Anthropic Messages, Google Gemini `generateContent`,
@@ -21,12 +23,13 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 - A bounded streaming Base64 decoder. `decode_base64(..., sink=...)` decodes in
   `BASE64_BLOCK_CHARACTERS` blocks and hands each decoded block to the sink without retaining
   the payload, enforcing every existing bound against the running decoded total.
-- Incremental JSON decoding, so a request never has to be held in memory at all. `normalize_stream`,
-  `normalize_path`, `decode_stream`, and the `--stream` CLI flag read a byte stream in bounded
-  chunks and produce the identical manifest. The nesting ceiling is now enforced while parsing
-  rather than by a separate character pass over the whole document, and duplicate keys, non-standard
-  numeric constants, non-finite floats, oversized integers, isolated surrogates, and the input byte
-  limit are all applied as the characters arrive.
+- Incremental JSON decoding that avoids buffering the complete raw JSON request body.
+  `normalize_stream`, `normalize_path`, `decode_stream`, and the `--stream` CLI flag read a byte
+  stream in bounded chunks and produce the identical manifest. Ordinary structure and accepted
+  text are still materialized; long media strings are reduced to bounded summaries. The nesting
+  ceiling is now enforced while parsing rather than by a separate character pass over the whole
+  document, and duplicate keys, non-standard numeric constants, non-finite floats, oversized
+  integers, isolated surrogates, and the input byte limit are all applied as the characters arrive.
 - `LargeValue`: a string past the streaming threshold, kept as its true character count, its leading
   `LARGE_VALUE_PREFIX_CHARACTERS` characters, and the Base64 summary folded in while the value
   streamed past. The threshold sits above `max_text_characters` and `MAX_REMOTE_URL_CHARACTERS`, so
@@ -38,6 +41,9 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Changed
 
+- CI and tagged releases now consume the frozen dependency lock with pinned automation actions;
+  publishing requires successful cross-platform tests and CodeQL, uses reproducible archive
+  timestamps, emits checksums and provenance, and refuses to replace an existing release asset.
 - Normalization now folds inline media into its byte length, SHA-256 digest, and the documented
   `SIGNATURE_PREFIX_BYTES` signature prefix as blocks arrive, instead of holding the whole
   decoded payload. Manifests, fingerprints, limits, and error codes are unchanged; peak traced

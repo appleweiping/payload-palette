@@ -399,7 +399,10 @@ def test_normalized_attributes_are_deeply_immutable() -> None:
         path="$[0]",
         kind="image",
         source="inline",
-        fingerprint="sha256:test",
+        fingerprint="sha256:" + "0" * 64,
+        byte_length=1,
+        mime_type="image/png",
+        locator="inline",
         attributes=source,
     )
     source["name"] = "caller-mutated"
@@ -409,24 +412,18 @@ def test_normalized_attributes_are_deeply_immutable() -> None:
 
 
 def test_manifest_parts_are_copied_to_an_immutable_tuple() -> None:
-    parts = [
-        NormalizedPart(
-            ordinal=0,
-            path="$[0]",
-            kind="text",
-            source="text",
-            fingerprint="sha256:test",
-        )
-    ]
-    manifest = Manifest(parts, "sha256:manifest", 0)  # type: ignore[arg-type]
+    generated = normalize([{"type": "text", "text": "snapshot"}])
+    parts = list(generated.parts)
+    manifest = Manifest(parts, generated.fingerprint, generated.inline_bytes)  # type: ignore[arg-type]
     parts.clear()
     assert isinstance(manifest.parts, tuple)
     assert manifest.part_count == 1
 
 
 def test_manifest_rejects_nonstandard_numeric_values() -> None:
+    generated = normalize([{"type": "text", "text": "value"}])
     with pytest.raises(ValueError, match="inline_bytes"):
-        Manifest((), "sha256:test", float("nan"))  # type: ignore[arg-type]
+        replace(generated, inline_bytes=float("nan"))  # type: ignore[arg-type]
 
 
 def test_generated_manifest_is_strict_standard_json() -> None:

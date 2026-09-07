@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools==84.0.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
 
 [project]
 name = "payload-palette"
-version = "0.2.0"
+version = "0.3.0"
 description = "Validate and normalize ordered multimodal request payloads without fetching remote media."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -28,6 +28,8 @@ dependencies = []
 dev = [
   "bandit>=1.7",
   "build>=1.2",
+  "check-wheel-contents>=0.6",
+  "hatchling==1.32.0",
   "mypy>=1.15",
   "pytest>=8.3",
   "pytest-cov>=6.0",
@@ -43,11 +45,27 @@ Documentation = "https://github.com/appleweiping/payload-palette#readme"
 Issues = "https://github.com/appleweiping/payload-palette/issues"
 Source = "https://github.com/appleweiping/payload-palette"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/payload_palette"]
 
-[tool.setuptools.package-data]
-payload_palette = ["py.typed"]
+[tool.hatch.build.targets.sdist]
+include = [
+  "/CITATION.cff",
+  "/CHANGELOG.md",
+  "/CODE_OF_CONDUCT.md",
+  "/CONTRIBUTING.md",
+  "/GOVERNANCE.md",
+  "/LICENSE",
+  "/README.md",
+  "/SECURITY.md",
+  "/benchmarks",
+  "/docs",
+  "/examples",
+  "/pyproject.toml",
+  "/src",
+  "/tests",
+  "/uv.lock",
+]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers --strict-config"

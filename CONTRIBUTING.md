@@ -17,7 +17,7 @@ python -m ruff check .
 python -m ruff format --check .
 python -m pytest --cov=payload_palette --cov-branch
 python benchmarks/benchmark_ingress.py --repeats 3 --operations 2
-python -m build
+python -m build --no-isolation
 ```
 
 ## Change guidelines

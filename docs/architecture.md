@@ -13,7 +13,9 @@ The implementation maintains seven invariants:
    bounds. Inline Base64 is decoded one bounded block at a time and checked against the running
    decoded total, so the working set of a decode does not scale with the payload.
 4. **Policy and output are immutable.** Policies validate exact runtime types and hard ceilings;
-   caller mappings, manifest parts, and part attributes are copied into read-only values.
+   caller mappings, every nested manifest part, and part attributes are copied into read-only values.
+   Serialization revalidates those snapshots, while bounded iteration rejects custom containers that
+   lie about their length or never terminate.
 5. **Output is safe to inspect, not automatically safe to persist.** Binary payloads and remote query strings are omitted, while prompt text remains visible by design.
 6. **Failures point back to input.** Stable error codes are paired with the precise retained value
    path and independent part errors are aggregated when possible.

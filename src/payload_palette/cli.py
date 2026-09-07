@@ -252,12 +252,13 @@ def _write_json_file_atomic(value: Any, path: Path, *, compact: bool = False) ->
 def _normalize_streamed(
     path: str, stdin: TextIO, policy: NormalizationPolicy, max_input_bytes: int
 ) -> Manifest:
-    """Normalize without holding the whole request.
+    """Normalize without buffering the complete raw JSON request body.
 
     Streaming needs the raw bytes, not decoded text, so standard input is read
     through its binary buffer.  A text stream with no buffer is refused rather
     than re-encoded, because re-encoding would reintroduce the whole-request
-    copy the caller asked to avoid.
+    copy the caller asked to avoid. Ordinary structure and accepted text are
+    still materialized; long media strings are summarized while they stream.
     """
 
     if path != "-":

@@ -290,7 +290,10 @@ def test_a_measured_value_rejects_an_unterminated_data_url_header() -> None:
 
 def test_a_value_carries_either_a_summary_or_a_refusal() -> None:
     with pytest.raises(ValueError, match="either"):
-        LargeValue(character_count=1, prefix="x")
+        LargeValue(
+            character_count=LARGE_VALUE_PREFIX_CHARACTERS + 1,
+            prefix="x" * LARGE_VALUE_PREFIX_CHARACTERS,
+        )
 
 
 @pytest.mark.parametrize("chunk", [1, 2, 3, 17, 4096, 1 << 18])
