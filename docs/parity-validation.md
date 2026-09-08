@@ -151,3 +151,21 @@ translated/swallowed cancellation, timeout identity and special-method descripto
 Ruff lint/format, strict Mypy, Bandit, lock consistency, the executable async example,
 existing demo comparison, wheel/sdist build, Twine and wheel-content checks passed.
 These local results do not claim that remote CI or provider-network interoperability ran.
+
+## Bounded event-stream framing increment
+
+The original `SSEDecoder` adds actual incremental UTF-8/line/field framing with
+explicit ownership, complete immutable messages, control-state/EOF diagnostics
+and independent byte, line, data, output-amplification and work budgets. It has no
+HTTP client, connection or provider API call. The offline example explicitly
+separates SSE messages, JSON fragments and application completion before semantic
+approval. See [the exact profile and limits](sse-framing.md).
+
+Final Windows Python 3.14.5 full verification passed 1,727 tests with RuntimeWarning
+as an error and 98.33% combined coverage. All 167 new tests also passed on Python
+3.12.0; the framing module reached 100%. Independent peer review checked 700
+additional seeded streams and exact work totals. Static/lock/package gates, the
+offline example and isolated built-wheel smoke passed. HTTP/reconnection,
+provider semantics, tool/usage aggregation, full external adapter verification
+and other reference repository subsystems remain OPEN. This increment is not a
+whole-repository completion declaration.
