@@ -6,6 +6,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added strict temporal, exact Decimal, UUID and IP dataclass fields, with bounded canonical
+  strings, pure semantic union selection, typed defaults and final object revalidation.
 - Added explicit trusted dataclass adaptation over the shared annotation/schema engine, with real
   nested constructors, isolated default projection/reconstruction, preflighted constructing unions,
   bounded callback/work accounting, final graph validation and strict JSON serialization.

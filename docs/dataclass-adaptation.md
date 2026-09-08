@@ -5,6 +5,9 @@ an actual `T`. It is separate from `AnnotationAdapter`, whose return contract re
 Both use the same annotation compiler, immutable `OutputSchema`, strict ingress and JSON encoder.
 There are no runtime dependencies, provider calls or schema-directed imports.
 
+Twelve [strict standard-library scalar fields](typed-scalar-fields.md) also compose with these
+models: temporal types, Decimal, UUID, and IPv4/IPv6 addresses, networks and interfaces.
+
 Run the offline example with `python examples/dataclass_adaptation.py`.
 
 ```python
@@ -88,8 +91,10 @@ class's mutability; no assignment validation is installed. Dumping rechecks thei
 
 ## Unions do not guess a constructing branch
 
-A union containing a dataclass anywhere in its branches must have exactly one matching **input
-schema** branch. This is checked before callbacks, never by trying constructors and keeping the
+A union containing a dataclass or typed scalar anywhere must have exactly one matching input
+branch. Scalar-bearing branches add their pure semantic preflight to the structural schema check;
+branches without scalar conversion keep the existing structural rule. This is checked before
+callbacks, never by trying constructors and keeping the
 first one that succeeds. Distinct required `Literal` tag fields are a useful way to make shapes
 unambiguous, but there is no separate discriminator engine. Pure JSON unions retain existing
 any-of behavior, such as a Python int satisfying both `int` and `float` annotations.
@@ -103,8 +108,9 @@ Ambiguity is a structured `dataclass_union_ambiguous` error, not hidden type coe
 
 Use live annotations as above. Strings, unresolved `ForwardRef`, recursive or generic models,
 `InitVar`, `init=False` classes/fields, custom field descriptors, nonempty field metadata, aliases,
-custom serializers, arbitrary validators, untyped containers, `Any`, tuples/sets, bytes and rich
-date/network types are not implemented. Custom constructor signatures must accept all declared
+custom serializers, arbitrary validators, untyped containers, `Any`, tuples/sets, bytes and standard
+types outside the [explicit scalar table](typed-scalar-fields.md) are not implemented.
+Custom constructor signatures must accept all declared
 fields as keywords. Known asynchronous factories, constructors and post-init functions are
 rejected. Class metadata and signatures are snapshotted for the plan, but the class is still a
 trusted Python object: metadata inspection or later class/descriptor mutation is not sandboxed.

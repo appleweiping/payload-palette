@@ -112,6 +112,14 @@ _CustomAnnotation = Callable[[object, int, OutputPath, _BuildAnnotation], Output
 _CompiledAnnotation = Callable[[object, OutputSchema], None]
 
 
+def _length_constraint(existing: int | None, requested: int | None, *, lower: bool) -> int | None:
+    if existing is None:
+        return requested
+    if requested is None:
+        return existing
+    return max(existing, requested) if lower else min(existing, requested)
+
+
 def _compile_schema(
     annotation: object,
     *,
@@ -210,8 +218,12 @@ def _compile_schema(
                     base,
                     minimum=constraint.minimum,
                     maximum=constraint.maximum,
-                    min_length=constraint.min_length,
-                    max_length=constraint.max_length,
+                    min_length=_length_constraint(
+                        base.min_length, constraint.min_length, lower=True
+                    ),
+                    max_length=_length_constraint(
+                        base.max_length, constraint.max_length, lower=False
+                    ),
                 )
             if is_typeddict(current):
                 annotations = getattr(current, "__annotations__", None)

@@ -61,6 +61,8 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
 - Has no runtime dependencies.
 - Offers explicit [dataclass adaptation](docs/dataclass-adaptation.md): real nested class construction,
   isolated defaults, bounded strict validation and revalidated JSON serialization.
+- Constructs twelve [standard-library scalar field types](docs/typed-scalar-fields.md), including
+  temporal values, exact Decimal, UUID and IPv4/IPv6 values, with strict canonical wire contracts.
 
 ## Installation
 
