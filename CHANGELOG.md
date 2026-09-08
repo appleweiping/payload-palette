@@ -6,6 +6,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added bounded offline incremental SSE framing, explicit control-state/EOF
+  diagnostics and an executable framing-to-JSON application example.
 - Added backpressured asynchronous output consumption, cooperative deadlines and
   explicit awaitable iterator cleanup before final semantic validation.
 - Added incremental strict UTF-8/JSON output parsing with bounded work, immutable

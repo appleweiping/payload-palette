@@ -85,6 +85,15 @@ from payload_palette.schema_io import (
     load_output_schema,
     load_output_schema_json_bytes,
 )
+from payload_palette.sse import (
+    SSEBatch,
+    SSEDecodeError,
+    SSEDecoder,
+    SSEEvent,
+    SSELimits,
+    SSESnapshot,
+    SSEStatus,
+)
 from payload_palette.streaming import (
     decode_stream,
     normalize_path,
@@ -143,6 +152,13 @@ __all__ = [
     "RuleContext",
     "RuleOutcome",
     "RuleResult",
+    "SSEBatch",
+    "SSEDecodeError",
+    "SSEDecoder",
+    "SSEEvent",
+    "SSELimits",
+    "SSESnapshot",
+    "SSEStatus",
     "SchemaDefinitionError",
     "SchemaDefinitionLimits",
     "StreamStatistics",

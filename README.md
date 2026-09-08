@@ -402,6 +402,11 @@ the next pull, checks a cooperative deadline, and finishes explicitly owned asyn
 semantic validation. Read the [async lifecycle contract](docs/async-output.md) or run
 `python examples/async_model_output.py`. No background prefetch task or provider connection is created.
 
+For event-stream framing, `SSEDecoder.feed(bytes)` returns complete immutable SSE messages with
+bounded line/data/work budgets and explicit EOF/control-state diagnostics. It does not call APIs,
+reconnect or infer provider/JSON completion. See the [SSE framing contract](docs/sse-framing.md) and
+`python examples/sse_json_output.py` for a credential-free, explicit application protocol example.
+
 ## Manifest format
 
 ### Comparing and auditing manifests
