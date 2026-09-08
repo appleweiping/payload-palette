@@ -119,3 +119,7 @@ server or distributed validator executor in this API. The separate
 [generation lifecycle](generation.md) adds provider invocation and bounded re-asks; the
 [incremental output session](incremental-output.md) adds strict UTF-8/JSON syntax progress and invokes
 this same complete pipeline only after actual EOF. Neither enables asynchronous semantic callbacks.
+
+The separate [AsyncValidationPipeline](async-validation.md) now composes this complete synchronous
+stage with bounded-concurrency **reject-only final** asynchronous checks. Its own ownership and
+deadline contract does not change `ValidationPipeline`, generation or incremental consumption.

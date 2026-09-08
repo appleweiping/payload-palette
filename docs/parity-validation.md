@@ -41,7 +41,7 @@ these rows has been promoted to whole-reference equivalence.
 | Schema generation and Python type system | `AnnotationAdapter`, `schema_for_annotation`, `tests/test_annotation_adapter.py` | Partial: strict primitives, list/dict, unions, Literal, TypedDict and explicit Annotated constraints; integer representation distinguished from JSON mathematical semantics. Generic models, forward references, dataclasses, callable validation, aliases and rich standard types remain open. |
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
-| Async and concurrency | Actual asynchronous provider protocol, cooperative deadlines/cancellation, concurrent-run isolation tests | Partial: sequential per-run lifecycle with shared budgets and explicit cancellation behavior. Async semantic validators, bounded parallel field scheduling, isolated workers and distributed execution remain open. |
+| Async and concurrency | Actual asynchronous provider protocol; `AsyncValidationPipeline` with owned coroutines, bounded final-field scheduling, deadline/cancellation and isolation tests | Partial: asynchronous reject-only final semantic checks compose with synchronous repairs under shared invocation budgets. Async repair/filter scheduling, provider/stream integration of the new stage, isolated workers and distributed execution remain open. |
 | Incremental output validation | `IncrementalOutputSession`, synchronous/async chunk consumers and their regression suites | Partial: finite-state UTF-8/JSON parsing, immutable provisional complete-value events, EOF validation and backpressured async consumption with cooperative cancellation and explicit cleanup. Incremental semantic rules, provider transport adapters and reference performance remain open. |
 | Model/tool/schema integration | Existing request envelope adapters normalize multimodal input | Open: output tool-call/schema contracts, schema-driven generation, provider adapter verification. |
 | Runtime schema import and rich serialization | `load_output_schema`, `export_output_schema`, configured `AnnotationAdapter.dump_json`, strict JSON ingress | Partial: strict bounded keyword import/export, immutable snapshots and exact-byte JSON presentation options. Full dialects, pipeline interchange, version migration, custom serializers and broad cross-engine interoperability remain open. |
@@ -169,3 +169,30 @@ offline example and isolated built-wheel smoke passed. HTTP/reconnection,
 provider semantics, tool/usage aggregation, full external adapter verification
 and other reference repository subsystems remain OPEN. This increment is not a
 whole-repository completion declaration.
+
+## Asynchronous final-semantic validation increment
+
+The original `AsyncValidationPipeline` composes the complete synchronous repair/final-check
+stage with real awaited reject-only checks over isolated final-field snapshots. It shares
+invocation admission with synchronous rules, bounds concurrency without eagerly copying every
+field, reports actual callback entries separately from reservations, and settles all owned
+coroutines before returning or propagating cancellation. Borrowed tasks/futures are rejected
+without being canceled. Read [the precise ownership and deadline contract](async-validation.md).
+
+Final Windows verification passed **1,824 tests** on both Python **3.14.5** (119.17 s) and
+**3.12.0** (74.58 s), with no skips and RuntimeWarning promoted to an error. The 3.14 suite
+reached **98.36% combined statement/branch coverage**; the existing 95% gate is unchanged.
+The 3.12 suite did not collect coverage. All **97** new focused cases passed separately on
+both interpreters, including independent reject-rule comparisons, Event-coordinated actual
+overlap, shared budgets, post-repair isolation, malformed returned-resource cleanup, borrowed
+awaitable ownership, repeated cancellation, genuine cleanup controls, timer ownership and
+late synchronous work through final report construction. The new module reached **98.90%**;
+two defensive internal invariant guards remain uncovered.
+
+Ruff lint/format, strict Mypy (24 source modules), Bandit, frozen-lock consistency and whitespace
+checks passed, along with all seven offline output examples and the existing generated-demo
+comparison. No dependency upgrade, package-version change, provider client or key was introduced.
+
+These are local implementation checks, not remote CI or a claim that this repository matches
+the complete reference. Asynchronous repair/filter semantics, provider/stream integration of
+this separate API, worker isolation, distributed validation and all other open rows remain open.
