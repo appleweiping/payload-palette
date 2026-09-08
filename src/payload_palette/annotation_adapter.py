@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import types
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import (
     Annotated,
@@ -103,11 +104,33 @@ def schema_for_annotation(
     imports are never used. TypedDict compilation snapshots its annotations.
     """
 
+    return _compile_schema(annotation, limits=limits)
+
+
+_BuildAnnotation = Callable[[object, int, OutputPath], OutputSchema]
+_CustomAnnotation = Callable[[object, int, OutputPath, _BuildAnnotation], OutputSchema | None]
+_CompiledAnnotation = Callable[[object, OutputSchema], None]
+
+
+def _compile_schema(
+    annotation: object,
+    *,
+    limits: SchemaDefinitionLimits | None = None,
+    custom: _CustomAnnotation | None = None,
+    compiled: _CompiledAnnotation | None = None,
+) -> OutputSchema:
+    """Shared private compiler; the public JSON adapter never enables custom records."""
     active_limits = _definition_limits(limits)
     active: set[int] = set()
     nodes = 0
 
     def build(current: object, depth: int, path: OutputPath) -> OutputSchema:
+        schema = build_node(current, depth, path)
+        if compiled is not None:
+            compiled(current, schema)
+        return schema
+
+    def build_node(current: object, depth: int, path: OutputPath) -> OutputSchema:
         nonlocal nodes
         nodes += 1
         if nodes > active_limits.max_nodes or depth > active_limits.max_depth:
@@ -228,6 +251,10 @@ def schema_for_annotation(
                     if mandatory:
                         required.append(key)
                 return OutputSchema("object", properties=properties, required=tuple(required))
+            if custom is not None:
+                extension = custom(current, depth, path, build)
+                if extension is not None:
+                    return extension
             raise _definition_error("annotation_type", "unsupported Python annotation object", path)
         except SchemaDefinitionError:
             raise
@@ -301,24 +328,28 @@ class AnnotationAdapter:
 
     def dump_json(self, value: object) -> bytes:
         document = self.validate_python(value)
-        options = self.serialization
-        encoder = json.JSONEncoder(
-            ensure_ascii=options.ensure_ascii,
-            sort_keys=options.sort_keys,
-            indent=options.indent,
-            separators=(",", ":") if options.indent is None else None,
-            allow_nan=False,
+        return _encode_json(document, self.serialization)
+
+
+def _encode_json(document: JSONValue, options: JSONSerializationOptions) -> bytes:
+    """Shared bounded serializer for already validated, isolated JSON snapshots."""
+    encoder = json.JSONEncoder(
+        ensure_ascii=options.ensure_ascii,
+        sort_keys=options.sort_keys,
+        indent=options.indent,
+        separators=(",", ":") if options.indent is None else None,
+        allow_nan=False,
+    )
+    chunks: list[bytes] = []
+    size = 0
+    for chunk in encoder.iterencode(document):
+        if len(chunk) > options.max_output_bytes - size:
+            raise OutputContractError("serialized JSON byte limit exceeded")
+        size += sum(
+            1 + (ord(character) > 0x7F) + (ord(character) > 0x7FF) + (ord(character) > 0xFFFF)
+            for character in chunk
         )
-        chunks: list[bytes] = []
-        size = 0
-        for chunk in encoder.iterencode(document):
-            if len(chunk) > options.max_output_bytes - size:
-                raise OutputContractError("serialized JSON byte limit exceeded")
-            size += sum(
-                1 + (ord(character) > 0x7F) + (ord(character) > 0x7FF) + (ord(character) > 0xFFFF)
-                for character in chunk
-            )
-            if size > options.max_output_bytes:
-                raise OutputContractError("serialized JSON byte limit exceeded")
-            chunks.append(chunk.encode("utf-8"))
-        return b"".join(chunks)
+        if size > options.max_output_bytes:
+            raise OutputContractError("serialized JSON byte limit exceeded")
+        chunks.append(chunk.encode("utf-8"))
+    return b"".join(chunks)

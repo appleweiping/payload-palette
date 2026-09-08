@@ -21,6 +21,7 @@ from payload_palette.batch import (
     normalize_batch,
     normalize_jsonl,
 )
+from payload_palette.dataclass_adapter import DataclassAdapter, DataclassLimits
 from payload_palette.diff import ManifestDifference, compare_manifests
 from payload_palette.errors import OutputError, PayloadValidationError, ValidationIssue
 from payload_palette.generation import (
@@ -125,6 +126,8 @@ __all__ = [
     "BatchRecord",
     "BatchReport",
     "CompletedJSONValue",
+    "DataclassAdapter",
+    "DataclassLimits",
     "EnvelopeName",
     "FieldConstraints",
     "GeneratedResponse",

@@ -38,7 +38,7 @@ these rows has been promoted to whole-reference equivalence.
 | Capability | Current evidence | Status / remaining acceptance work |
 |---|---|---|
 | Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py` | Partial: JSON types, homogeneous arrays, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded anyOf/nullability. Recursive references, discriminators and full schema dialect test corpus remain open. |
-| Schema generation and Python type system | `AnnotationAdapter`, `schema_for_annotation`, `tests/test_annotation_adapter.py` | Partial: strict primitives, list/dict, unions, Literal, TypedDict and explicit Annotated constraints; integer representation distinguished from JSON mathematical semantics. Generic models, forward references, dataclasses, callable validation, aliases and rich standard types remain open. |
+| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `schema_for_annotation`, annotation/dataclass tests | Partial: strict primitives, list/dict, unions, Literal, TypedDict, Annotated constraints and explicit bounded stdlib dataclass construction/defaults/serialization. Generic models, forward references, broader model/validator semantics, callable validation, aliases and rich standard types remain open. |
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
 | Async and concurrency | Actual asynchronous provider protocol; `AsyncValidationPipeline` with owned coroutines, bounded final-field scheduling, deadline/cancellation and isolation tests | Partial: asynchronous reject-only final semantic checks compose with synchronous repairs under shared invocation budgets. Async repair/filter scheduling, provider/stream integration of the new stage, isolated workers and distributed execution remain open. |
@@ -196,3 +196,36 @@ comparison. No dependency upgrade, package-version change, provider client or ke
 These are local implementation checks, not remote CI or a claim that this repository matches
 the complete reference. Asynchronous repair/filter semantics, provider/stream integration of
 this separate API, worker isolation, distributed validation and all other open rows remain open.
+
+## Explicit dataclass adaptation increment
+
+The new distinct `DataclassAdapter` constructs real nested stdlib dataclasses through the existing
+annotation compiler and schema evaluator. It includes input/output omission semantics, captured
+literal defaults, per-call factory results projected and reconstructed without bypassing actual
+constructors, pre-callback input/union checks, monotonic work and callback budgets, and final object
+projection/revalidation. Tests exercise observable constructor side effects, aliases, late mutation,
+ambiguity, exact types, inherited/frozen/slotted fields and fresh-versus-borrowed async resources.
+See [the exact supported subset and trust boundary](dataclass-adaptation.md).
+
+Comparison uses the frozen first-party Pydantic
+[dataclass contract](https://github.com/pydantic/pydantic/blob/2261ae19e2e09f792f06613360c83fc829238111/docs/concepts/dataclasses.md)
+and [type-adapter contract](https://github.com/pydantic/pydantic/blob/2261ae19e2e09f792f06613360c83fc829238111/docs/concepts/type_adapter.md).
+This original implementation is not a Pydantic wrapper or a claim to implement all those contracts.
+Recursive/generic models, aliases, rich standard types, custom serializers, assignment/call
+validation, compiled acceleration and complete cross-engine compatibility remain open.
+
+Final Windows / Python **3.14.5** verification passed **1,896 tests**, zero skips, in **76.35 s**
+with RuntimeWarning promoted to an error. Combined statement/branch coverage was **98.46%**;
+the existing **95%** gate was unchanged. All **72** new focused cases also passed separately on
+Python **3.12.0**. The dataclass module reached **99.62%** (one private no-union-match defensive
+guard remains uncovered); the shared annotation compiler and schema evaluator reached **100%**.
+
+Independent review checked nested preflight, ambiguity, shared work, direct coroutine ownership
+and error privacy. Final admission tests also reject explicit `default_factory=None`, separately
+from an absent factory; callback signatures and missing-value sentinels are not conflated.
+Ruff lint/format, strict Mypy (25 source modules), Bandit, lock/whitespace checks, all eight offline
+output examples, the existing demo comparison, wheel-from-sdist build, Twine, wheel contents and
+isolated installed-wheel execution passed. Both distributions include the new module, and the
+sdist includes its documentation, example and tests. There are no runtime dependency, project
+version, provider or key changes. These are local results, not a claim that hosted CI or broad
+Pydantic differential compatibility has run on this uncommitted increment.

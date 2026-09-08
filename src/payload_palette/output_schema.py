@@ -52,6 +52,13 @@ class OutputContractError(ValueError):
     """A non-JSON value or resource limit prevents safe validation."""
 
 
+@dataclass(slots=True)
+class _SchemaWork:
+    """Private monotonic counter for composed validation of owned snapshots."""
+
+    steps: int = 0
+
+
 def _text(value: object) -> bool:
     return type(value) is str and not any(0xD800 <= ord(char) <= 0xDFFF for char in value)
 
@@ -268,9 +275,18 @@ class OutputSchema:
 
         active_limits = _limits(limits)
         document = snapshot_json(value, active_limits)
+        return self._validate_snapshot(document, active_limits, _SchemaWork())
+
+    def _validate_snapshot(
+        self,
+        document: JSONValue,
+        active_limits: OutputLimits,
+        work: _SchemaWork,
+        path: OutputPath = (),
+    ) -> tuple[ValidationIssue, ...]:
+        """Validate an already owned snapshot without resetting shared schema work."""
         issues: list[ValidationIssue] = []
         truncated = False
-        steps = 0
 
         def issue(code: str, message: str, path: OutputPath) -> None:
             nonlocal truncated
@@ -280,11 +296,11 @@ class OutputSchema:
                 truncated = True
 
         def visit(schema: OutputSchema, current: JSONValue, path: OutputPath) -> None:
-            nonlocal issues, truncated, steps
+            nonlocal issues, truncated
             if truncated:
                 return
-            steps += 1
-            if steps > active_limits.max_schema_steps:
+            work.steps += 1
+            if work.steps > active_limits.max_schema_steps:
                 raise OutputContractError("schema evaluation work limit exceeded")
             if schema.kind == "union":
                 original_issues, original_truncated = issues, truncated
@@ -338,7 +354,7 @@ class OutputSchema:
                 for index, child in enumerate(current):
                     visit(schema.items, child, (*path, index))
 
-        visit(self, document, ())
+        visit(self, document, path)
         if truncated:
             issues.append(ValidationIssue("schema_issue_limit", "further errors omitted", "$"))
         return tuple(issues)
