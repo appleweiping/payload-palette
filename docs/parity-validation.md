@@ -42,7 +42,7 @@ these rows has been promoted to whole-reference equivalence.
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
 | Async and concurrency | Actual asynchronous provider protocol, cooperative deadlines/cancellation, concurrent-run isolation tests | Partial: sequential per-run lifecycle with shared budgets and explicit cancellation behavior. Async semantic validators, bounded parallel field scheduling, isolated workers and distributed execution remain open. |
-| Incremental output validation | Existing media ingress streaming is a different boundary | Open: chunk/state protocol, incomplete JSON handling, incremental rule state and differential whole-document equivalence. |
+| Incremental output validation | `IncrementalOutputSession`, `validate_output_chunks`, `tests/test_incremental_output.py` | Partial: finite-state UTF-8/JSON parsing, immutable provisional complete-value events, explicit EOF validation and whole-document differential cases. Incremental semantic rules, async provider streaming, backpressure and reference performance remain open. |
 | Model/tool/schema integration | Existing request envelope adapters normalize multimodal input | Open: output tool-call/schema contracts, schema-driven generation, provider adapter verification. |
 | Runtime schema import and rich serialization | `load_output_schema`, `export_output_schema`, configured `AnnotationAdapter.dump_json`, strict JSON ingress | Partial: strict bounded keyword import/export, immutable snapshots and exact-byte JSON presentation options. Full dialects, pipeline interchange, version migration, custom serializers and broad cross-engine interoperability remain open. |
 | History, metrics, tracing and privacy | Bounded immutable rule outcomes and generation/re-ask history; raw output/instruction/validator prose excluded from generation history | Partial: local per-attempt token/response/callback accounting and declared-path feedback. Persistent lineage, richer redaction policy, execution metrics and opt-in trace exporters remain open. |
@@ -75,6 +75,14 @@ integration. JSON Schema integer semantics are tested separately from strict Pyt
 Payload's interchange extension preserves that otherwise nonportable representation distinction.
 This is not full Pydantic type support or a full JSON Schema interpreter.
 
+The fourth slice adds genuine incremental UTF-8/JSON parsing without repeated prefix decoding,
+with shared immutable complete-value events and final complete-pipeline validation. Differential
+tests compare every byte split of strict syntax vectors, seeded nested documents and existing
+whole-document reports. Additional tests cover source/observer/cleanup failures and control
+exceptions, Unicode/number boundaries, provisional invalidation and explicit byte/token/path-work
+limits. This retains the complete bounded value graph and does not claim constant memory or
+incremental semantic validation. See the [exact incremental contract](incremental-output.md).
+
 Run the same commands used for repository CI:
 
 ```bash
@@ -91,7 +99,7 @@ Full-repository parity can close only after the open work has explicit implement
 independent tests, documentation, performance/scale evidence, and reviewed reference differences.
 The presence of this assessment does not itself satisfy those gates.
 
-## Local verification snapshot
+## Historical third-slice verification snapshot
 
 On Windows / Python 3.14.5, the completed suite passed **1198 tests** with **97.95% combined
 statement/branch coverage**. Python 3.12.0 independently passed the same 1198 tests. Schema and
@@ -105,3 +113,19 @@ The local source inventory has 20 Python files (5748 nonblank lines); tests have
 (4879 nonblank lines), counted with `rg --files` and PowerShell `Measure-Object -Line`. These counts
 include existing ingress functionality and the new output slice. They remain substantially below
 the reference repository inventories above; test count and coverage do not erase that scope gap.
+
+## Incremental-slice local verification
+
+Windows Python 3.14.5 and Python 3.12.0 each passed **1450 tests** with RuntimeWarning promoted to
+an error. The 3.14 run reported **98.16% combined statement/branch coverage**; the incremental module
+reported 99%, with only three internal representation-invariant guards uncovered. The new module
+contributes 235 collected regression cases, including parameterized cases and seeded/all-split
+corpora within those tests. Counts describe the actual local suite, not reference equivalence.
+
+Ruff lint/format, strict Mypy, Bandit, all four output examples, the existing demo comparison,
+wheel/sdist build, Twine, wheel-content checks and an isolated installed-wheel incremental smoke
+passed. Remote CI for this uncommitted slice has not been run or claimed. The initial lock check
+also exposed a pre-existing package-metadata mismatch: the committed lock recorded 0.3.0 while
+the project metadata recorded 0.5.0. The single stale lock metadata line was synchronized to the
+existing project version, with no dependency upgrade or release-version bump. The repeated
+`uv lock --check` then passed.
