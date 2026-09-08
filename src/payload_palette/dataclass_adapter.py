@@ -40,6 +40,7 @@ from .output_schema import (
     output_path,
     snapshot_json,
 )
+from .scalar_fields import _codec_for, _ScalarCodec
 from .schema_io import SchemaDefinitionLimits, _definition_error
 
 _T = TypeVar("_T")
@@ -90,7 +91,9 @@ class _Plan:
     children: tuple[_Plan, ...] = ()
     fields: tuple[_Field, ...] = ()
     model: type[object] | None = field(default=None, repr=False)
+    codec: _ScalarCodec | None = field(default=None, repr=False)
     constructs: bool = field(init=False)
+    converts: bool = field(init=False)
 
     def __post_init__(self) -> None:
         # Cache this definition property once; repeated runtime union selection
@@ -99,8 +102,16 @@ class _Plan:
             self,
             "constructs",
             self.model is not None
+            or self.codec is not None
             or any(child.constructs for child in self.children)
             or any(item.plan.constructs for item in self.fields),
+        )
+        object.__setattr__(
+            self,
+            "converts",
+            self.codec is not None
+            or any(child.converts for child in self.children)
+            or any(item.plan.converts for item in self.fields),
         )
 
 
@@ -226,6 +237,11 @@ def _compile(model: type[object], limits: SchemaDefinitionLimits) -> _Plan:
     def custom(
         current: object, depth: int, path: OutputPath, build: _BuildAnnotation
     ) -> OutputSchema | None:
+        codec = _codec_for(current)
+        if codec is not None:
+            schema = OutputSchema("string", min_length=1, max_length=codec.maximum)
+            by_schema[id(schema)] = _Plan(schema, schema, "scalar", codec=codec)
+            return schema
         if not isinstance(current, type) or not dataclasses.is_dataclass(current):
             return None
         metadata = inspect.getattr_static(current, "__dataclass_fields__", None)
@@ -334,6 +350,11 @@ def _select(plan: _Plan, value: JSONValue, work: _Work, path: OutputPath) -> _Pl
     for child in plan.children:
         work.visit()
         if not child.schema._validate_snapshot(value, work.limits, work.schema, path):
+            if child.converts:
+                try:
+                    _preflight(child, value, work, path)
+                except PayloadValidationError:
+                    continue
             matches.append(child)
     if not matches:
         raise _problem("dataclass_union", "value does not match a union branch", path)
@@ -346,7 +367,9 @@ def _select(plan: _Plan, value: JSONValue, work: _Work, path: OutputPath) -> _Pl
 
 def _preflight(plan: _Plan, value: JSONValue, work: _Work, path: OutputPath = ()) -> None:
     work.visit()
-    if plan.kind == "union":
+    if plan.codec is not None:
+        _scalar_value(plan.codec, value, path)
+    elif plan.kind == "union":
         _preflight(_select(plan, value, work, path), value, work, path)
     elif plan.kind == "array":
         for position, child in enumerate(cast(list[JSONValue], value)):
@@ -359,6 +382,15 @@ def _preflight(plan: _Plan, value: JSONValue, work: _Work, path: OutputPath = ()
         for item in plan.fields:
             if item.name in document:
                 _preflight(item.plan, document[item.name], work, (*path, item.name))
+
+
+def _scalar_value(
+    codec: _ScalarCodec, value: object, path: OutputPath, *, dump: bool = False
+) -> object:
+    try:
+        return codec.encode(value) if dump else codec.decode(value)
+    except (ValueError, TypeError, OverflowError):
+        raise _problem("dataclass_scalar", f"invalid {codec.name} field", path) from None
 
 
 def _project(
@@ -386,6 +418,10 @@ def _project(
             return _project(selected, value, work, path, tree, active, depth)
         raise _problem("dataclass_type", "object does not match a union's declared types", path)
     tree.visit(depth, value)
+    if plan.codec is not None:
+        encoded = cast(str, _scalar_value(plan.codec, value, path, dump=True))
+        tree.text(encoded)
+        return encoded
     if plan.kind == "value":
         if value is None or type(value) in (str, bool) or _number(value):
             return cast(JSONScalar, value)
@@ -482,7 +518,7 @@ def _factory(item: _Field, work: _Work, path: OutputPath) -> JSONValue:
 @dataclass(frozen=True, slots=True)
 class _Ready:
     plan: _Plan
-    value: JSONScalar = None
+    value: object = None
     items: tuple[_Ready, ...] = ()
     fields: tuple[tuple[str, _Ready], ...] = ()
 
@@ -493,6 +529,12 @@ def _prepare(
     work.visit()
     if plan.kind == "union":
         return _prepare(_select(plan, value, work, path), value, work, tree, path, depth)
+    if plan.codec is not None:
+        converted = _scalar_value(plan.codec, value, path)
+        # Budget the actual output representation before adapter constructors.
+        canonical = _scalar_value(plan.codec, converted, path, dump=True)
+        tree.visit(depth, canonical)
+        return _Ready(plan, converted)
     tree.visit(depth, value)
     if plan.kind == "value":
         return _Ready(plan, cast(JSONScalar, value))
@@ -531,7 +573,7 @@ def _prepare(
 
 def _construct(ready: _Ready, work: _Work, path: OutputPath = ()) -> object:
     work.visit()
-    if ready.plan.kind == "value":
+    if ready.plan.kind in ("value", "scalar"):
         return ready.value
     if ready.plan.kind == "array":
         return [_construct(item, work, (*path, index)) for index, item in enumerate(ready.items)]

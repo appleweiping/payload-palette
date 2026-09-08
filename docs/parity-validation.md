@@ -38,7 +38,7 @@ these rows has been promoted to whole-reference equivalence.
 | Capability | Current evidence | Status / remaining acceptance work |
 |---|---|---|
 | Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py` | Partial: JSON types, homogeneous arrays, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded anyOf/nullability. Recursive references, discriminators and full schema dialect test corpus remain open. |
-| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `schema_for_annotation`, annotation/dataclass tests | Partial: strict primitives, list/dict, unions, Literal, TypedDict, Annotated constraints and explicit bounded stdlib dataclass construction/defaults/serialization. Generic models, forward references, broader model/validator semantics, callable validation, aliases and rich standard types remain open. |
+| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `schema_for_annotation`, annotation/dataclass/scalar tests | Partial: strict primitives, list/dict, unions, Literal, TypedDict, Annotated constraints, bounded dataclass construction/defaults/serialization and twelve concrete temporal/Decimal/UUID/IP scalar types. Generic models, forward references, broader model/validator semantics, callable validation, aliases and other standard type families remain open. |
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
 | Async and concurrency | Actual asynchronous provider protocol; `AsyncValidationPipeline` with owned coroutines, bounded final-field scheduling, deadline/cancellation and isolation tests | Partial: asynchronous reject-only final semantic checks compose with synchronous repairs under shared invocation budgets. Async repair/filter scheduling, provider/stream integration of the new stage, isolated workers and distributed execution remain open. |
@@ -211,7 +211,7 @@ Comparison uses the frozen first-party Pydantic
 [dataclass contract](https://github.com/pydantic/pydantic/blob/2261ae19e2e09f792f06613360c83fc829238111/docs/concepts/dataclasses.md)
 and [type-adapter contract](https://github.com/pydantic/pydantic/blob/2261ae19e2e09f792f06613360c83fc829238111/docs/concepts/type_adapter.md).
 This original implementation is not a Pydantic wrapper or a claim to implement all those contracts.
-Recursive/generic models, aliases, rich standard types, custom serializers, assignment/call
+Recursive/generic models, aliases, rich standard types (now narrowed by the next increment), custom serializers, assignment/call
 validation, compiled acceleration and complete cross-engine compatibility remain open.
 
 Final Windows / Python **3.14.5** verification passed **1,896 tests**, zero skips, in **76.35 s**
@@ -229,3 +229,46 @@ isolated installed-wheel execution passed. Both distributions include the new mo
 sdist includes its documentation, example and tests. There are no runtime dependency, project
 version, provider or key changes. These are local results, not a claim that hosted CI or broad
 Pydantic differential compatibility has run on this uncommitted increment.
+
+## Increment: integrated strict standard-library scalar fields
+
+`DataclassAdapter` now constructs twelve concrete temporal/Decimal/UUID/IP types
+through its existing compiled plan, preparation/default machinery and final graph
+validation. The JSON-only annotation adapter remains unchanged. Scalar-bearing
+unions use bounded pure semantic preflight without trial user constructors;
+canonical wire constraints, timezone/scale decisions and schema projection limits
+are documented in [the full contract](typed-scalar-fields.md).
+
+Thirteen initial tests failed on the published code because these annotations
+were unsupported. A separate hostile-context regression exposed Decimal's
+context-sensitive exponent capitalization; the original codec now emits exact
+tuple-based canonical strings without ambient context mutation. Independent
+250-tuple representation comparisons preserve sign, coefficient and exponent,
+including 1000 digits and the admitted exponent extremes. These focused results
+do not replace final whole-suite/package/hosted gates.
+
+Coercion policies, richer type families, recursive/generic definitions, aliases,
+custom serializers, complete JSON Schema dialects and the other whole-reference
+requirements remain open. The
+[frozen standard-library reference contract](https://github.com/pydantic/pydantic/blob/2261ae19e2e09f792f06613360c83fc829238111/docs/api/standard_library_types.md)
+was checked for public capability scope. This is an independently authored strict
+wire subset, not a declaration of broad cross-engine equivalence.
+
+Windows Python **3.14.5** full verification passed **2,060 tests**, zero skips,
+in **117.30 s**, with RuntimeWarning and ResourceWarning treated as errors.
+Combined coverage was **98.5360%**: 4959/5016 statements and 2041/2088 branches.
+All **164** new cases separately passed on Python **3.12.13** (12.05 s).
+The scalar module and both affected annotation/dataclass modules reached **100%**
+statement/branch coverage in the full run and a separate 310-case focused run.
+The existing repository coverage gate remains unchanged. Independent review
+checked actual pre-constructor rejection, ambiguous unions, hostile Decimal
+contexts, coefficient-scale round trips and typed/default ownership boundaries.
+
+Ruff lint/format (88 files), strict Mypy (26 modules), Bandit, frozen 62-package
+lock and whitespace checks passed. All nine offline output examples and the
+existing demo comparison passed. A wheel built from the sdist passed strict
+Twine and wheel-content checks. Its 27 package files matched source and a fresh
+offline isolated installation; eight incremental documentation/test/example
+files matched the sdist. The isolated installed package ran the actual typed-scalar
+and nested-dataclass examples. No package version, dependency or runtime key
+changed. Hosted validation is separate and is not claimed by these local results.
