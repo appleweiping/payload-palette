@@ -6,6 +6,7 @@ from payload_palette.annotation_adapter import (
     JSONSerializationOptions,
     schema_for_annotation,
 )
+from payload_palette.async_output import AsyncOutputPolicy, validate_async_output_chunks
 from payload_palette.audit import AuditReceipt, audit_manifest
 from payload_palette.batch import (
     BatchRecord,
@@ -100,6 +101,7 @@ __all__ = [
     "AnnotationAdapter",
     "AsyncGenerationRunner",
     "AsyncModelProvider",
+    "AsyncOutputPolicy",
     "AuditReceipt",
     "BatchRecord",
     "BatchReport",
@@ -165,6 +167,7 @@ __all__ = [
     "normalize_stream",
     "schema_for_annotation",
     "validate",
+    "validate_async_output_chunks",
     "validate_output_chunks",
 ]
 

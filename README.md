@@ -395,7 +395,12 @@ the complete schema/rule pipeline. `validate_output_chunks` adds a pull source w
 ownership and cleanup before approval. Read the [incremental output contract](docs/incremental-output.md)
 for Unicode/number boundaries, limits, actual-value privacy and failure semantics, or run
 `python examples/incremental_model_output.py`. This retains a bounded complete value graph; it is not
-constant-memory validation or asynchronous model streaming.
+constant-memory validation or a model transport adapter.
+
+For asynchronous byte sources, `validate_async_output_chunks` awaits each progress observer before
+the next pull, checks a cooperative deadline, and finishes explicitly owned async cleanup before
+semantic validation. Read the [async lifecycle contract](docs/async-output.md) or run
+`python examples/async_model_output.py`. No background prefetch task or provider connection is created.
 
 ## Manifest format
 

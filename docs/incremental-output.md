@@ -128,7 +128,9 @@ transferring cleanup responsibility for the iterator returned by `iter(chunks)`.
 Cleanup must be synchronous; awaitable and async-generator results are rejected, and actual returned
 coroutines are closed without executing asynchronous work. This helper cannot drive asynchronous
 cleanup of custom awaitables or already-started async generators; those malformed trusted source
-implementations remain responsible for their resources. No async iterable or provider stream is adapted here.
+implementations remain responsible for their resources. The synchronous helper does not adapt async iterables.
+The separate [asynchronous consumer](async-output.md) supplies awaited backpressure and explicit async cleanup;
+neither helper supplies a provider-specific transport adapter.
 If iterator creation itself fails, any resource acquired by that caller code remains its responsibility.
 
 Observers must be synchronous and return `None`. They receive each feed's progress, including empty
