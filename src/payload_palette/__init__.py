@@ -7,6 +7,12 @@ from payload_palette.annotation_adapter import (
     schema_for_annotation,
 )
 from payload_palette.async_output import AsyncOutputPolicy, validate_async_output_chunks
+from payload_palette.async_validation import (
+    AsyncOutputValidator,
+    AsyncRuleBinding,
+    AsyncValidationPipeline,
+    AsyncValidationPolicy,
+)
 from payload_palette.audit import AuditReceipt, audit_manifest
 from payload_palette.batch import (
     BatchRecord,
@@ -111,6 +117,10 @@ __all__ = [
     "AsyncGenerationRunner",
     "AsyncModelProvider",
     "AsyncOutputPolicy",
+    "AsyncOutputValidator",
+    "AsyncRuleBinding",
+    "AsyncValidationPipeline",
+    "AsyncValidationPolicy",
     "AuditReceipt",
     "BatchRecord",
     "BatchReport",

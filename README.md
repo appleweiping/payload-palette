@@ -367,6 +367,12 @@ optional-field filtering, and per-field diagnostics. Read the
 [structured output contract](docs/output-validation.md) for ordering, limits, and exceptions, and the
 [reference gap assessment](docs/parity-validation.md) for the remaining repository-level work.
 
+For awaited semantic checks, `AsyncValidationPipeline` runs the complete synchronous repair stage
+first, then validates the final candidate with bounded-concurrency, reject-only async rules.
+It owns fresh callback coroutines, settles children on cancellation, and shares the invocation
+budget with synchronous rules. See the [async semantic contract](docs/async-validation.md) and
+`python examples/async_semantic_validation.py`; no provider client or background service is added.
+
 For schema data interchange or trusted Python annotations, use `load_output_schema`,
 `export_output_schema` and `AnnotationAdapter`. Supported types include constrained scalars,
 nullable unions, lists, typed string-key maps, Literal and TypedDict. Unknown schema keywords,
