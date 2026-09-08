@@ -113,7 +113,7 @@ class UnsupportedDataclass:
         list,
         dict,
         dict[int, str],
-        tuple[int, str],
+        tuple,
         set[int],
         UnsupportedDataclass,
         "__import__('os').system('must not run')",

@@ -63,6 +63,8 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
   isolated defaults, bounded strict validation and revalidated JSON serialization.
 - Constructs twelve [standard-library scalar field types](docs/typed-scalar-fields.md), including
   temporal values, exact Decimal, UUID and IPv4/IPv6 values, with strict canonical wire contracts.
+- Validates [position-specific arrays and typed tuples](docs/positional-arrays.md), with explicit
+  prefix/suffix schemas, fixed or variadic tuple fields and exact-position semantic rules.
 
 ## Installation
 
