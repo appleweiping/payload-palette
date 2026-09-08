@@ -6,6 +6,9 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added explicit trusted dataclass adaptation over the shared annotation/schema engine, with real
+  nested constructors, isolated default projection/reconstruction, preflighted constructing unions,
+  bounded callback/work accounting, final graph validation and strict JSON serialization.
 - Added bounded offline incremental SSE framing, explicit control-state/EOF
   diagnostics and an executable framing-to-JSON application example.
 - Added backpressured asynchronous output consumption, cooperative deadlines and

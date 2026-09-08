@@ -100,7 +100,9 @@ integer/number schemas; length bounds apply to strings and arrays. Put metadata 
 branch before making it nullable. Stacked metadata flattened by Python, unknown metadata, and
 constraints on incompatible kinds are explicit errors rather than silently overwritten settings.
 
-The adapter returns isolated JSON data, **not** class instances. Dataclass/model construction,
+`AnnotationAdapter` returns isolated JSON data, **not** class instances. The distinct
+[`DataclassAdapter`](dataclass-adaptation.md) supports explicit bounded stdlib dataclass construction.
+For `AnnotationAdapter` itself, dataclass/model construction,
 arbitrary validators/serializers, aliases, default injection, coercion, `Any`, untyped containers,
 tuple/set, non-string map keys, recursive references, generic models, bytes, date/network types and
 call validation are not implemented. See Python's [typing contract](https://docs.python.org/3/library/typing.html)

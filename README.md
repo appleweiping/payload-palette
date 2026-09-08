@@ -59,6 +59,8 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
 - Provides `normalize_batch()` / `normalize_jsonl()` for bounded offline
   dataset audits and `manifest_schema()` for versioned manifest interchange.
 - Has no runtime dependencies.
+- Offers explicit [dataclass adaptation](docs/dataclass-adaptation.md): real nested class construction,
+  isolated defaults, bounded strict validation and revalidated JSON serialization.
 
 ## Installation
 
