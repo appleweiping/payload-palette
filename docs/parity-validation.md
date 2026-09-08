@@ -42,7 +42,7 @@ these rows has been promoted to whole-reference equivalence.
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
 | Async and concurrency | Actual asynchronous provider protocol, cooperative deadlines/cancellation, concurrent-run isolation tests | Partial: sequential per-run lifecycle with shared budgets and explicit cancellation behavior. Async semantic validators, bounded parallel field scheduling, isolated workers and distributed execution remain open. |
-| Incremental output validation | `IncrementalOutputSession`, `validate_output_chunks`, `tests/test_incremental_output.py` | Partial: finite-state UTF-8/JSON parsing, immutable provisional complete-value events, explicit EOF validation and whole-document differential cases. Incremental semantic rules, async provider streaming, backpressure and reference performance remain open. |
+| Incremental output validation | `IncrementalOutputSession`, synchronous/async chunk consumers and their regression suites | Partial: finite-state UTF-8/JSON parsing, immutable provisional complete-value events, EOF validation and backpressured async consumption with cooperative cancellation and explicit cleanup. Incremental semantic rules, provider transport adapters and reference performance remain open. |
 | Model/tool/schema integration | Existing request envelope adapters normalize multimodal input | Open: output tool-call/schema contracts, schema-driven generation, provider adapter verification. |
 | Runtime schema import and rich serialization | `load_output_schema`, `export_output_schema`, configured `AnnotationAdapter.dump_json`, strict JSON ingress | Partial: strict bounded keyword import/export, immutable snapshots and exact-byte JSON presentation options. Full dialects, pipeline interchange, version migration, custom serializers and broad cross-engine interoperability remain open. |
 | History, metrics, tracing and privacy | Bounded immutable rule outcomes and generation/re-ask history; raw output/instruction/validator prose excluded from generation history | Partial: local per-attempt token/response/callback accounting and declared-path feedback. Persistent lineage, richer redaction policy, execution metrics and opt-in trace exporters remain open. |
@@ -82,6 +82,13 @@ whole-document reports. Additional tests cover source/observer/cleanup failures 
 exceptions, Unicode/number boundaries, provisional invalidation and explicit byte/token/path-work
 limits. This retains the complete bounded value graph and does not claim constant memory or
 incremental semantic validation. See the [exact incremental contract](incremental-output.md).
+
+The fifth slice adds a genuine asynchronous iterator consumer with awaited observers (no
+prefetch), a cooperative deadline and separately bounded owned cleanup before semantic approval.
+Tests exercise real cancellation/timeouts, swallowed cancellation, retained prior cancellation
+counts, late synchronous callbacks, cleanup/control failures and concurrent consumer isolation.
+It reuses the parser and complete pipeline, not a second parsing/validation implementation.
+Provider framing, token accounting and incremental semantic rules remain open.
 
 Run the same commands used for repository CI:
 
@@ -129,3 +136,18 @@ also exposed a pre-existing package-metadata mismatch: the committed lock record
 the project metadata recorded 0.5.0. The single stale lock metadata line was synchronized to the
 existing project version, with no dependency upgrade or release-version bump. The repeated
 `uv lock --check` then passed.
+
+## Async-consumption local verification
+
+Final Windows Python 3.14.5 ran 1,560 tests with RuntimeWarning treated as an error:
+all passed, with 98.23% combined statement/branch coverage and 100% in `async_output.py`.
+Python 3.12.0 independently passed all 110 new focused cases. An initial 3.12 test run
+exposed nonportable `cr_frame is None` assertions: that interpreter can retain the frame
+after `coroutine.close()`. The final tests check the observable prohibition on reuse
+without executing the coroutine body instead; the cleanup implementation was not weakened.
+
+Independent lifecycle review reproduced and verified fixes for nested unawaited returns,
+translated/swallowed cancellation, timeout identity and special-method descriptor binding.
+Ruff lint/format, strict Mypy, Bandit, lock consistency, the executable async example,
+existing demo comparison, wheel/sdist build, Twine and wheel-content checks passed.
+These local results do not claim that remote CI or provider-network interoperability ran.
