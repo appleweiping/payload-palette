@@ -44,6 +44,7 @@ shape-compatible dictionaries and subclasses are not accepted in their place. Th
 graph is fresh, and dumping neither invokes factories nor reconstructs objects.
 
 Supported fields compose nested dataclasses with the existing primitives, homogeneous lists,
+[fixed/variadic/empty tuples](positional-arrays.md),
 string-key maps, `TypedDict`, scalar `Literal`, nullable/union types and `Annotated[T,
 FieldConstraints(...)]`. Inherited, frozen, slotted and keyword-only dataclasses are supported.
 Live `ClassVar` fields are not wire fields. A nullable field is still required unless it has a
@@ -91,7 +92,7 @@ class's mutability; no assignment validation is installed. Dumping rechecks thei
 
 ## Unions do not guess a constructing branch
 
-A union containing a dataclass or typed scalar anywhere must have exactly one matching input
+A union containing a dataclass, tuple or typed scalar anywhere must have exactly one matching input
 branch. Scalar-bearing branches add their pure semantic preflight to the structural schema check;
 branches without scalar conversion keep the existing structural rule. This is checked before
 callbacks, never by trying constructors and keeping the
@@ -108,7 +109,7 @@ Ambiguity is a structured `dataclass_union_ambiguous` error, not hidden type coe
 
 Use live annotations as above. Strings, unresolved `ForwardRef`, recursive or generic models,
 `InitVar`, `init=False` classes/fields, custom field descriptors, nonempty field metadata, aliases,
-custom serializers, arbitrary validators, untyped containers, `Any`, tuples/sets, bytes and standard
+custom serializers, arbitrary validators, untyped containers, `Any`, named tuples/sets, bytes and standard
 types outside the [explicit scalar table](typed-scalar-fields.md) are not implemented.
 Custom constructor signatures must accept all declared
 fields as keywords. Known asynchronous factories, constructors and post-init functions are

@@ -22,12 +22,12 @@ silently ignores unknown or inapplicable keywords.
 | `type: null / boolean` | Scalar `enum` or `const` |
 | `type: integer / number` | Inclusive `minimum`, `maximum`, scalar `enum` or `const` |
 | `type: string` | Unicode code-point `minLength`, `maxLength`, scalar `enum` or `const` |
-| `type: array` | Required homogeneous `items`, `minItems`, `maxItems` |
+| `type: array` | Explicit schema-valued or false `items`, optional positional `prefixItems`, `minItems`, `maxItems` |
 | `type: object` | `properties`, `required`, boolean or schema-valued `additionalProperties` |
 | `anyOf` | 2–16 explicit schema branches; only `$schema` may accompany it |
 | `type: [...]` | 1–7 unique unconstrained scalar/object types; only `$schema` may accompany it |
 
-Type lists normalize to branches. Arrays still require an explicit items schema, so nullable arrays
+Type lists normalize to branches. Arrays still require explicit `items`, so nullable arrays
 use `anyOf`, not a bare array in a type list. Put branch-specific constraints inside `anyOf`.
 Scalar enums contain 1–256 unique values matching their declared type. `const` normalizes to a
 singleton enum; enum and const together are rejected. Required names must be declared properties.
@@ -40,9 +40,11 @@ Shared acyclic schema dictionaries are copied; source mutation cannot alter a co
 
 The only accepted root `$schema` URI is `https://json-schema.org/draft/2020-12/schema`. It identifies
 the source keyword semantics, not a claim to implement the complete dialect. Nested dialects,
-boolean schemas, empty schemas, `$ref`, `$defs`, recursion, `oneOf`, `allOf`, discriminators,
-regex/format, dependent conditions, tuple arrays, arbitrary extensions and custom vocabulary are
+general boolean schemas, empty schemas, `$ref`, `$defs`, recursion, `oneOf`, `allOf`, discriminators,
+regex/format, dependent conditions, arbitrary extensions and custom vocabulary are
 rejected. Resource/finite-number restrictions also remain part of Payload's runtime contract.
+The specific `items: false` form closes the suffix after any declared prefix; it is not general
+boolean-schema support. See [positional arrays](positional-arrays.md) for length semantics.
 See the first-party descriptions of [schema combination](https://json-schema.org/understanding-json-schema/reference/combining)
 and [numeric types](https://json-schema.org/understanding-json-schema/reference/numeric).
 
@@ -90,6 +92,7 @@ are trusted Python configuration, not a sandbox; obtaining Python class metadata
 own runtime machinery.
 
 Supported annotations are exact `str`, `int`, `float`, `bool`, `None`/`NoneType`, `list[T]`,
+fixed `tuple[T1, T2, ...]` (concrete element types), variadic `tuple[T, ...]`, empty `tuple[()]`,
 `dict[str, T]`, PEP 604/`typing.Union`, JSON-scalar `Literal`, and `TypedDict` including inherited
 fields, total/partial records and direct `Required`/`NotRequired` field wrappers. Literals support
 strings, ints, booleans and null, separating bool from int. A float annotation describes JSON's
@@ -104,7 +107,7 @@ constraints on incompatible kinds are explicit errors rather than silently overw
 [`DataclassAdapter`](dataclass-adaptation.md) supports explicit bounded stdlib dataclass construction.
 For `AnnotationAdapter` itself, dataclass/model construction,
 arbitrary validators/serializers, aliases, default injection, coercion, `Any`, untyped containers,
-tuple/set, non-string map keys, recursive references, generic models, bytes, date/network types and
+named tuples/sets, non-string map keys, recursive references, generic models, bytes, date/network types and
 call validation are not implemented. See Python's [typing contract](https://docs.python.org/3/library/typing.html)
 for the source annotation forms; this adapter intentionally supports only the subset above.
 

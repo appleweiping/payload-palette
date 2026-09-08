@@ -103,6 +103,7 @@ class _Plan:
             "constructs",
             self.model is not None
             or self.codec is not None
+            or self.kind == "tuple"
             or any(child.constructs for child in self.children)
             or any(item.plan.constructs for item in self.fields),
         )
@@ -147,8 +148,9 @@ class _Tree:
         if type(value) is str:
             self.text(value)
         if (
-            type(value) in (list, dict)
-            and len(cast(list[object], value)) > self.limits.max_nodes - self.nodes
+            type(value) in (list, tuple, dict)
+            and len(cast(list[object] | tuple[object, ...] | dict[str, object], value))
+            > self.limits.max_nodes - self.nodes
         ):
             raise OutputContractError("dataclass snapshot node limit exceeded")
 
@@ -213,9 +215,16 @@ def _compile(model: type[object], limits: SchemaDefinitionLimits) -> _Plan:
             )
             plan = replace(base, schema=schema, output_schema=output)
         else:
-            if origin is list:
-                kind, children = "array", (by_schema[id(schema.items)],)
-                output = replace(schema, items=children[0].output_schema)
+            if origin in (list, tuple):
+                kind = "array" if origin is list else "tuple"
+                if schema.prefix_items is not None:
+                    children = tuple(by_schema[id(child)] for child in schema.prefix_items)
+                    output = replace(
+                        schema, prefix_items=tuple(child.output_schema for child in children)
+                    )
+                else:
+                    children = (by_schema[id(schema.items)],)
+                    output = replace(schema, items=children[0].output_schema)
             elif origin is dict:
                 kind, children = "map", (by_schema[id(schema.additional_properties)],)
                 output = replace(schema, additional_properties=children[0].output_schema)
@@ -365,15 +374,19 @@ def _select(plan: _Plan, value: JSONValue, work: _Work, path: OutputPath) -> _Pl
     return matches[0]
 
 
+def _sequence_child(plan: _Plan, index: int) -> _Plan:
+    return plan.children[index if plan.schema.prefix_items is not None else 0]
+
+
 def _preflight(plan: _Plan, value: JSONValue, work: _Work, path: OutputPath = ()) -> None:
     work.visit()
     if plan.codec is not None:
         _scalar_value(plan.codec, value, path)
     elif plan.kind == "union":
         _preflight(_select(plan, value, work, path), value, work, path)
-    elif plan.kind == "array":
+    elif plan.kind in ("array", "tuple"):
         for position, child in enumerate(cast(list[JSONValue], value)):
-            _preflight(plan.children[0], child, work, (*path, position))
+            _preflight(_sequence_child(plan, position), child, work, (*path, position))
     elif plan.kind == "map":
         for name, child in cast(dict[str, JSONValue], value).items():
             _preflight(plan.children[0], child, work, (*path, name))
@@ -430,12 +443,24 @@ def _project(
         raise OutputContractError("cyclic dataclass object graph")
     active.add(id(value))
     try:
-        if plan.kind == "array":
-            if type(value) is not list:
-                raise _problem("dataclass_type", "expected a built-in list", path)
+        if plan.kind in ("array", "tuple"):
+            expected = list if plan.kind == "array" else tuple
+            if type(value) is not expected:
+                raise _problem("dataclass_type", f"expected a built-in {expected.__name__}", path)
+            sequence = cast(list[object] | tuple[object, ...], value)
+            if plan.schema.prefix_items is not None and len(sequence) != len(plan.children):
+                raise _problem("dataclass_tuple_length", "fixed tuple has the wrong length", path)
             return [
-                _project(plan.children[0], child, work, (*path, index), tree, active, depth + 1)
-                for index, child in enumerate(value)
+                _project(
+                    _sequence_child(plan, index),
+                    child,
+                    work,
+                    (*path, index),
+                    tree,
+                    active,
+                    depth + 1,
+                )
+                for index, child in enumerate(sequence)
             ]
         if plan.kind == "dataclass":
             if type(value) is not plan.model:
@@ -538,11 +563,11 @@ def _prepare(
     tree.visit(depth, value)
     if plan.kind == "value":
         return _Ready(plan, cast(JSONScalar, value))
-    if plan.kind == "array":
+    if plan.kind in ("array", "tuple"):
         return _Ready(
             plan,
             items=tuple(
-                _prepare(plan.children[0], child, work, tree, (*path, index), depth + 1)
+                _prepare(_sequence_child(plan, index), child, work, tree, (*path, index), depth + 1)
                 for index, child in enumerate(cast(list[JSONValue], value))
             ),
         )
@@ -577,6 +602,10 @@ def _construct(ready: _Ready, work: _Work, path: OutputPath = ()) -> object:
         return ready.value
     if ready.plan.kind == "array":
         return [_construct(item, work, (*path, index)) for index, item in enumerate(ready.items)]
+    if ready.plan.kind == "tuple":
+        return tuple(
+            _construct(item, work, (*path, index)) for index, item in enumerate(ready.items)
+        )
     fields = {name: _construct(item, work, (*path, name)) for name, item in ready.fields}
     model = ready.plan.model
     if model is None:

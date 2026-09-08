@@ -6,6 +6,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added bounded position-specific array schemas and fixed, variadic and empty tuple annotations,
+  with strict interchange, exact-position semantic paths and integrated typed dataclass fields.
 - Added strict temporal, exact Decimal, UUID and IP dataclass fields, with bounded canonical
   strings, pure semantic union selection, typed defaults and final object revalidation.
 - Added explicit trusted dataclass adaptation over the shared annotation/schema engine, with real

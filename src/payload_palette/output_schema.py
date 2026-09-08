@@ -130,7 +130,7 @@ class OutputSchema:
     """A strict JSON schema subset with immutable nested configuration.
 
     Supported features: the seven JSON types, nested object properties and
-    homogeneous arrays, required/extra keys, scalar enums, numeric bounds, and
+    homogeneous/positional arrays, required/extra keys, scalar enums, numeric bounds, and
     string/array length bounds. This is not a full JSON Schema interpreter.
     """
 
@@ -146,6 +146,7 @@ class OutputSchema:
     enum: tuple[JSONScalar, ...] | None = None
     any_of: tuple[OutputSchema, ...] = ()
     integer_mode: Literal["strict", "json"] = "strict"
+    prefix_items: tuple[OutputSchema, ...] | None = None
 
     def __post_init__(self) -> None:
         if type(self.integer_mode) is not str or self.integer_mode not in ("strict", "json"):
@@ -191,10 +192,19 @@ class OutputSchema:
             self.properties or self.required or self.additional_properties
         ):
             raise ValueError("object constraints require an object schema")
-        if (self.kind == "array" and type(self.items) is not OutputSchema) or (
-            self.kind != "array" and self.items is not None
+        if self.prefix_items is not None and (
+            self.kind != "array"
+            or type(self.prefix_items) is not tuple
+            or len(self.prefix_items) > 256
+            or any(type(child) is not OutputSchema for child in self.prefix_items)
         ):
-            raise ValueError("only array schemas require an items schema")
+            raise ValueError("prefix_items requires an array and a tuple of at most 256 schemas")
+        if (
+            self.kind == "array"
+            and type(self.items) is not OutputSchema
+            and not (self.items is None and self.prefix_items is not None)
+        ) or (self.kind != "array" and self.items is not None):
+            raise ValueError("array schemas require items or an explicit positional prefix")
         for bound in (self.minimum, self.maximum):
             if bound is not None and (self.kind not in ("number", "integer") or not _number(bound)):
                 raise ValueError("numeric bounds require finite numbers and a numeric schema")
@@ -240,6 +250,7 @@ class OutputSchema:
             stack.extend((child, depth + 1) for child in schema.properties.values())
             if schema.items is not None:
                 stack.append((schema.items, depth + 1))
+            stack.extend((child, depth + 1) for child in schema.prefix_items or ())
             if type(schema.additional_properties) is OutputSchema:
                 stack.append((schema.additional_properties, depth + 1))
             stack.extend((branch, depth + 1) for branch in schema.any_of)
@@ -350,9 +361,18 @@ class OutputSchema:
                         visit(schema.additional_properties, child, (*path, key))
                     elif not schema.additional_properties:
                         issue("schema_extra", "undeclared property", (*path, key))
-            elif isinstance(current, list) and schema.items is not None:
+            elif isinstance(current, list):
                 for index, child in enumerate(current):
-                    visit(schema.items, child, (*path, index))
+                    if truncated:
+                        break
+                    item_schema = schema._array_item(index)
+                    if item_schema is None:
+                        work.steps += 1
+                        if work.steps > active_limits.max_schema_steps:
+                            raise OutputContractError("schema evaluation work limit exceeded")
+                        issue("schema_extra_item", "undeclared array position", (*path, index))
+                    else:
+                        visit(item_schema, child, (*path, index))
 
         visit(self, document, path)
         if truncated:
@@ -397,6 +417,13 @@ class OutputSchema:
             )
         if self.items is not None:
             result["items"] = self.items.json_schema(preserve_python_types=preserve_python_types)
+        elif self.prefix_items is not None:
+            result["items"] = False
+        if self.prefix_items:
+            result["prefixItems"] = [
+                child.json_schema(preserve_python_types=preserve_python_types)
+                for child in self.prefix_items
+            ]
         for keyword, value in (("minimum", self.minimum), ("maximum", self.maximum)):
             if value is not None:
                 result[keyword] = value
@@ -414,6 +441,12 @@ class OutputSchema:
                     unique.append(member)
             result["enum"] = unique
         return result
+
+    def _array_item(self, index: int) -> OutputSchema | None:
+        """Return one declared array position, or None for a forbidden suffix."""
+        if self.prefix_items is not None and index < len(self.prefix_items):
+            return self.prefix_items[index]
+        return self.items
 
 
 def _limits(limits: OutputLimits | None) -> OutputLimits:
@@ -450,7 +483,8 @@ def _schema_path_possible(
     if schema.kind == "array" and type(segment) is int and segment >= 0:
         if schema.max_length is not None and segment >= schema.max_length:
             return False
-        return schema.items is not None and _schema_path_possible(
-            schema.items, remaining, allow_dynamic=allow_dynamic
+        item = schema._array_item(segment)
+        return item is not None and _schema_path_possible(
+            item, remaining, allow_dynamic=allow_dynamic
         )
     return False

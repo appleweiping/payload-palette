@@ -37,8 +37,8 @@ these rows has been promoted to whole-reference equivalence.
 
 | Capability | Current evidence | Status / remaining acceptance work |
 |---|---|---|
-| Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py` | Partial: JSON types, homogeneous arrays, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded anyOf/nullability. Recursive references, discriminators and full schema dialect test corpus remain open. |
-| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `schema_for_annotation`, annotation/dataclass/scalar tests | Partial: strict primitives, list/dict, unions, Literal, TypedDict, Annotated constraints, bounded dataclass construction/defaults/serialization and twelve concrete temporal/Decimal/UUID/IP scalar types. Generic models, forward references, broader model/validator semantics, callable validation, aliases and other standard type families remain open. |
+| Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py`, positional-array tests | Partial: JSON types, homogeneous/positional arrays, typed suffixes, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded anyOf/nullability. Recursive references, discriminators and full schema dialect test corpus remain open. |
+| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `schema_for_annotation`, annotation/dataclass/scalar/tuple tests | Partial: strict primitives, list/dict, fixed/variadic/empty tuples, unions, Literal, TypedDict, Annotated constraints, bounded dataclass construction/defaults/serialization and twelve concrete temporal/Decimal/UUID/IP scalar types. Generic models, forward references, broader model/validator semantics, callable validation, aliases and other standard type families remain open. |
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
 | Async and concurrency | Actual asynchronous provider protocol; `AsyncValidationPipeline` with owned coroutines, bounded final-field scheduling, deadline/cancellation and isolation tests | Partial: asynchronous reject-only final semantic checks compose with synchronous repairs under shared invocation budgets. Async repair/filter scheduling, provider/stream integration of the new stage, isolated workers and distributed execution remain open. |
@@ -272,3 +272,48 @@ offline isolated installation; eight incremental documentation/test/example
 files matched the sdist. The isolated installed package ran the actual typed-scalar
 and nested-dataclass examples. No package version, dependency or runtime key
 changed. Hosted validation is separate and is not claimed by these local results.
+
+## Integrated positional-array and tuple increment
+
+The shared schema engine now distinguishes present prefix positions, a closed or
+typed suffix, and independent whole-array length limits. Fixed, variadic and
+empty tuple annotations use that engine; dataclass plans construct exact tuples
+and revalidate nested defaults, unions and final typed objects. The JSON-only
+adapter still returns lists. See [the complete contract](positional-arrays.md).
+
+Five first regressions failed on the published baseline because positional
+schemas and tuple annotations were unsupported. Independent validation checked
+54 supported schemas against 813 values each (43,902 cases) using the existing
+development installation of Draft202012Validator, including schema metaschema
+checks and normalized export/reimport. This comparison uses mathematical JSON
+integer semantics; it does not equate strict Python integers with portable schema
+projections. No dependency was added. An independent peer also ran 503 public-API
+checks of nested tuples, scalar members, positional rules and node budgets.
+An isolated interpreter comparison with the SHA-verified previous scalar wheel
+also matched all normalized schemas, portable projections and ordered issue
+records for 59 old supported schemas against 213 values (12,567 comparisons).
+
+A further RED regression showed that an oversized typed tuple reached its first
+scalar conversion before node-budget rejection. Its exact built-in length is
+now admitted before projecting members, matching the existing list/map fast
+rejection. This improves early rejection without claiming the earlier traversal
+was unbounded. Tests also cover complete synchronous repairs, asynchronous final
+checks, every UTF-8 split with final-only validation, generation re-ask path
+privacy, ambiguous wire unions and untrusted iterable refusal.
+
+Windows Python **3.14.5** full verification passed **2,110 tests**, zero skips,
+in **62.44 s**, with RuntimeWarning and ResourceWarning as errors. Combined
+coverage is **98.5245%** (5006/5064 statements and 2072/2120 branches), above the
+unchanged 95% gate. Both affected annotation/dataclass adapters reached 100%;
+schema and interchange modules retain only existing defensive guards uncovered.
+All **50** new cases also passed Python **3.12.13** in **2.18 s**. Test count
+includes parameterized cases and does not measure reference-level completeness.
+
+Ruff lint/format (91 files), strict Mypy (26 modules), Bandit, frozen 62-package
+lock, all ten offline output examples and the existing demo byte comparison
+passed. The final wheel-from-sdist, strict Twine, wheel-content and isolated
+installed-wheel example checks passed. All 27 package files and nine additional
+sdist files matched source; no runtime dependency or package version changed.
+Hosted checks remain separate evidence. General iterable coercion,
+named/unpacked/generic/recursive tuples, complete schema dialects and
+whole-reference quality/scale remain open.

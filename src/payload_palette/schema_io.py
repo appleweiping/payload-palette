@@ -166,7 +166,7 @@ def load_output_schema(
             if kind == "string":
                 allowed |= {"minLength", "maxLength"}
             elif kind == "array":
-                allowed |= {"items", "minItems", "maxItems"}
+                allowed |= {"items", "prefixItems", "minItems", "maxItems"}
             elif kind == "object":
                 allowed |= {"properties", "required", "additionalProperties"}
             require_keys(node, allowed, path)
@@ -239,6 +239,7 @@ def load_output_schema(
             required: tuple[str, ...] = ()
             additional: bool | OutputSchema = False
             items: OutputSchema | None = None
+            prefix: tuple[OutputSchema, ...] | None = None
             if kind == "object":
                 raw_properties = node.get("properties", {})
                 if type(raw_properties) is not dict or len(raw_properties) > 256:
@@ -285,7 +286,20 @@ def load_output_schema(
                     raise _definition_error(
                         "schema_definition_type", "array schemas require items", path
                     )
-                items = build(node["items"], depth + 1, (*path, "items"))
+                if "prefixItems" in node:
+                    raw_prefix = node["prefixItems"]
+                    if type(raw_prefix) is not list or not 1 <= len(raw_prefix) <= 256:
+                        raise _definition_error(
+                            "schema_definition_type", "prefixItems requires 1..256 schemas", path
+                        )
+                    prefix = tuple(
+                        build(child, depth + 1, (*path, "prefixItems", index))
+                        for index, child in enumerate(raw_prefix)
+                    )
+                if node["items"] is False:
+                    prefix = () if prefix is None else prefix
+                else:
+                    items = build(node["items"], depth + 1, (*path, "items"))
             suffix = "Items" if kind == "array" else "Length"
             try:
                 return OutputSchema(
@@ -293,6 +307,7 @@ def load_output_schema(
                     properties=properties,
                     required=required,
                     items=items,
+                    prefix_items=prefix,
                     additional_properties=additional,
                     minimum=cast(int | float | None, node.get("minimum")),
                     maximum=cast(int | float | None, node.get("maximum")),

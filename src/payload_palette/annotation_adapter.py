@@ -90,6 +90,7 @@ def _expanded_budget(schema: OutputSchema, limits: SchemaDefinitionLimits) -> No
         stack.extend((child, depth + 1) for child in current.any_of)
         if current.items is not None:
             stack.append((current.items, depth + 1))
+        stack.extend((child, depth + 1) for child in current.prefix_items or ())
         if type(current.additional_properties) is OutputSchema:
             stack.append((current.additional_properties, depth + 1))
 
@@ -172,6 +173,21 @@ def _compile_schema(
             args = get_args(current)
             if origin is list and len(args) == 1:
                 return OutputSchema("array", items=build(args[0], depth + 1, path))
+            if origin is tuple and getattr(current, "__args__", None) is not None:
+                if len(args) == 2 and args[1] is Ellipsis:
+                    return OutputSchema("array", items=build(args[0], depth + 1, path))
+                if len(args) > 256 or any(item is Ellipsis for item in args):
+                    raise _definition_error(
+                        "annotation_tuple", "fixed tuple requires at most 256 element types", path
+                    )
+                return OutputSchema(
+                    "array",
+                    prefix_items=tuple(
+                        build(item, depth + 1, (*path, index)) for index, item in enumerate(args)
+                    ),
+                    min_length=len(args),
+                    max_length=len(args),
+                )
             if origin is dict and len(args) == 2 and args[0] is str:
                 return OutputSchema("object", additional_properties=build(args[1], depth + 1, path))
             if origin in (Union, types.UnionType):
