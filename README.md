@@ -389,6 +389,14 @@ This executable offline example exercises an invalid classification, re-ask feed
 second response. [The generation lifecycle contract](docs/generation.md) describes the adapter API,
 privacy rules, cancellation behavior, and the distinction between reported usage and provider billing.
 
+For incremental UTF-8 output, `IncrementalOutputSession.feed(bytes)` emits immutable complete-value
+syntax events without reparsing prefixes. Events remain provisional; only explicit `finish()` runs
+the complete schema/rule pipeline. `validate_output_chunks` adds a pull source with explicit iterator
+ownership and cleanup before approval. Read the [incremental output contract](docs/incremental-output.md)
+for Unicode/number boundaries, limits, actual-value privacy and failure semantics, or run
+`python examples/incremental_model_output.py`. This retains a bounded complete value graph; it is not
+constant-memory validation or asynchronous model streaming.
+
 ## Manifest format
 
 ### Comparing and auditing manifests

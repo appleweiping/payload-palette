@@ -6,6 +6,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added incremental strict UTF-8/JSON output parsing with bounded work, immutable
+  provisional syntax events, final-only semantic validation and explicit iterator ownership.
 - Added bounded runtime schema interchange, union/nullability and typed-map validation, with
   explicit strict-Python versus mathematical-JSON integer semantics and faithful Payload exports.
 - Added trusted annotation adapters for primitives, containers, unions, Literal, TypedDict and

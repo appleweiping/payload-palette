@@ -115,5 +115,7 @@ Duplicate keys, nonstandard numbers, invalid UTF-8, and oversized raw input reta
 Validators are trusted Python code. Copies protect the pipeline's data from incidental callback
 mutation, but synchronous calls cannot sandbox Python, restrict callback network access, bound a
 callback's own allocation, or interrupt its execution. Async callbacks are rejected. There is no
-LLM invocation, re-ask loop, server, distributed validator executor, or structured-token streaming
-implementation in this API.
+server or distributed validator executor in this API. The separate
+[generation lifecycle](generation.md) adds provider invocation and bounded re-asks; the
+[incremental output session](incremental-output.md) adds strict UTF-8/JSON syntax progress and invokes
+this same complete pipeline only after actual EOF. Neither enables asynchronous semantic callbacks.

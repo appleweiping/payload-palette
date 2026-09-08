@@ -27,6 +27,18 @@ from payload_palette.generation import (
     GenerationRequest,
     TokenUsage,
 )
+from payload_palette.incremental_output import (
+    CompletedJSONValue,
+    IncrementalJSONError,
+    IncrementalLimits,
+    IncrementalOutputSession,
+    IncrementalProgress,
+    IncrementalResult,
+    IncrementalStatistics,
+    IncrementalStatus,
+    JSONValueSnapshot,
+    validate_output_chunks,
+)
 from payload_palette.ingress import (
     DEFAULT_MAX_INPUT_BYTES,
     MAX_INGRESS_INPUT_BYTES,
@@ -91,6 +103,7 @@ __all__ = [
     "AuditReceipt",
     "BatchRecord",
     "BatchReport",
+    "CompletedJSONValue",
     "EnvelopeName",
     "FieldConstraints",
     "GeneratedResponse",
@@ -99,9 +112,17 @@ __all__ = [
     "GenerationPolicy",
     "GenerationReport",
     "GenerationRequest",
+    "IncrementalJSONError",
+    "IncrementalLimits",
+    "IncrementalOutputSession",
+    "IncrementalProgress",
+    "IncrementalResult",
+    "IncrementalStatistics",
+    "IncrementalStatus",
     "JSONScalar",
     "JSONSerializationOptions",
     "JSONValue",
+    "JSONValueSnapshot",
     "LargeValue",
     "Manifest",
     "ManifestDifference",
@@ -144,6 +165,7 @@ __all__ = [
     "normalize_stream",
     "schema_for_annotation",
     "validate",
+    "validate_output_chunks",
 ]
 
 __version__ = "0.5.0"
