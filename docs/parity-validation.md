@@ -44,9 +44,9 @@ these rows has been promoted to whole-reference equivalence.
 | Async and concurrency | Actual asynchronous provider protocol; `AsyncValidationPipeline` with owned coroutines, bounded final-field scheduling, deadline/cancellation and isolation tests | Partial: asynchronous reject-only final semantic checks compose with synchronous repairs under shared invocation budgets. Async repair/filter scheduling, provider/stream integration of the new stage, isolated workers and distributed execution remain open. |
 | Incremental output validation | `IncrementalOutputSession`, synchronous/async chunk consumers and their regression suites | Partial: finite-state UTF-8/JSON parsing, immutable provisional complete-value events, EOF validation and backpressured async consumption with cooperative cancellation and explicit cleanup. Incremental semantic rules, provider transport adapters and reference performance remain open. |
 | Model/tool/schema integration | Existing request envelope adapters normalize multimodal input | Open: output tool-call/schema contracts, schema-driven generation, provider adapter verification. |
-| Runtime schema import and rich serialization | `load_output_schema`, `export_output_schema`, configured `AnnotationAdapter.dump_json`, strict JSON ingress | Partial: strict bounded keyword import/export, immutable snapshots and exact-byte JSON presentation options. Full dialects, pipeline interchange, version migration, custom serializers and broad cross-engine interoperability remain open. |
+| Runtime schema import and rich serialization | `load_output_schema`, `export_output_schema`, configured `AnnotationAdapter.dump_json`, strict JSON ingress; configuration-only `load_output_config` / `export_output_config` | Partial: strict bounded keyword import/export, immutable snapshots, exact-byte JSON presentation options and closed v1 interchange for exact trim/choice pipelines. Full dialects, arbitrary validator/pipeline interchange, version migration, custom serializers and broad cross-engine interoperability remain open. |
 | History, metrics, tracing and privacy | Bounded immutable rule outcomes and generation/re-ask history; raw output/instruction/validator prose excluded from generation history | Partial: local per-attempt token/response/callback accounting and declared-path feedback. Persistent lineage, richer redaction policy, execution metrics and opt-in trace exporters remain open. |
-| CLI / deployment | Existing request CLI; executable `examples/validate_model_output.py` | Partial: output validation CLI with declarative configuration, service API, deployment examples and service-level tests remain open. |
+| CLI / deployment | Existing request CLI; bounded declarative `check-output-config` / `validate-output` commands and exclusive final reports; `examples/validate_configured_output.py` | Partial: complete Windows/Linux tests, installed-wheel CLI/config tests and package verification for this offline workflow. Hosted checks are separate; service API, deployment examples and service-level tests remain open. |
 | Performance / implementation scale | Dependency-free Python implementation; existing ingress benchmarks | Open: representative schema/validator benchmarks, first-party reference differential measurements, compiled acceleration decisions and independently audited scale inventory. |
 | Repository engineering | Existing CI, type checking, security scan, coverage gate and release workflows | Partial: local gates validate this slice, not reference-level completeness. Add cross-version/interoperability corpus and reproducible performance evidence before parity closure. |
 
@@ -405,3 +405,29 @@ returned failure with `corpus_changed`; it is not counted as final acceptance.
 An isolated smoke initially supplied empty content and correctly received the
 existing `empty_content` diagnostic; the valid original text control then passed
 under `-I`. No production parser was altered to make this corpus pass.
+
+## Declarative output configuration and CLI increment
+
+The closed [configuration format](output-configuration.md) now round-trips exact
+trim/choice pipelines through the existing schema/repair/filter/final-check engine.
+The [offline CLI](output-cli.md) compiles explicit files, validates complete JSON
+from files/stdin and writes bounded final reports with exclusive publication.
+Normal diagnostic metadata and opt-in accepted output have an explicit privacy
+boundary; fixed argument/configuration/I/O failures omit raw values and paths.
+
+Final full gates: Windows Python 3.14.5 **2,555 passed, two real privilege skips**,
+68.95s, **98.4263%** coverage; independent Linux Python 3.12.3 **2,557 passed,
+no skips**, 196.96s, **98.4007%** coverage. All 129 files remain unchanged across
+each full run. The 95% threshold, warnings and existing exclusions are unchanged.
+Linux separately ran all **285 new cases from an installed wheel** with `-I`
+and exact runtime-byte/origin checks. Windows second-interpreter and independent
+review, 12,000 configuration mutations, actual competing publication processes,
+and cleanup/control/uncertain-acknowledgement tests provide distinct evidence.
+
+The executable offline example, strict package/static/lock gates and complete
+29-runtime/four-metadata/120-sdist-entry audit pass. Final documentation-only
+acceptance notes follow those full runs and trigger a package rebuild/recheck;
+hosted results are tracked separately. No original parser/corpus/validation
+engine, dependency, version or old wire was changed to obtain these results.
+Services, model providers, arbitrary validator interchange, general schema/type
+coverage and complete reference-scale performance/integration remain open.

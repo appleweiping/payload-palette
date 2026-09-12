@@ -250,6 +250,22 @@ Allowlisting only validates a reference. Payload Palette never downloads it:
 payload-palette validate request.json --allow-host media.example.org
 ```
 
+### Complete model output
+
+```bash
+payload-palette check-output-config CONFIG.json
+payload-palette validate-output CONFIG.json MODEL-OUTPUT.json
+payload-palette validate-output CONFIG.json - --include-output -o NEW-REPORT.json
+```
+
+These separate offline commands use a closed declarative schema/trim/choice configuration.
+Exit `0` means accepted, `1` means rejected output with a completed report, and `2` means invalid
+configuration/arguments or I/O/report failure. Reports omit output unless explicitly requested;
+diagnostic paths and rule IDs remain data-bearing metadata. Report files must be new and are
+published only after complete serialization, with no overwrite. See the exact
+[command, limit, privacy and publication contract](docs/output-cli.md), or run
+`python examples/validate_configured_output.py`. Request policy flags above do not apply here.
+
 ## Python API
 
 ```python
@@ -372,6 +388,11 @@ Run `python examples/validate_model_output.py` for a complete classification exa
 optional-field filtering, and per-field diagnostics. Read the
 [structured output contract](docs/output-validation.md) for ordering, limits, and exceptions, and the
 [reference gap assessment](docs/parity-validation.md) for the remaining repository-level work.
+
+For closed declarative configuration, `load_output_config` compiles a bounded v1 JSON document
+into that same pipeline. `export_output_config` and `output_config_digest` provide owned normalized
+interchange and configuration identity for the exact trim/choice built-ins. See the
+[configuration contract](docs/output-configuration.md) and [output CLI](docs/output-cli.md).
 
 For awaited semantic checks, `AsyncValidationPipeline` runs the complete synchronous repair stage
 first, then validates the final candidate with bounded-concurrency, reject-only async rules.
