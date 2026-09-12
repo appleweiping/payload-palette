@@ -6,6 +6,10 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added an offline, provenance-checked differential input corpus with preflighted work budgets,
+  per-case process watchdogs, reproducible reports and evidence-preserving bounded shrinking.
+  Original mutation tooling and a licensed immutable JSON test-data subset ship in the source
+  distribution only; runtime parsing, public wire formats and dependencies are unchanged.
 - Added bounded position-specific array schemas and fixed, variadic and empty tuple annotations,
   with strict interchange, exact-position semantic paths and integrated typed dataclass fields.
 - Added strict temporal, exact Decimal, UUID and IP dataclass fields, with bounded canonical
