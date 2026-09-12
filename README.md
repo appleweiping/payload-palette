@@ -571,6 +571,17 @@ are documented in the [compatibility policy](docs/compatibility.md).
 
 ## Reproducible benchmark
 
+For correctness research rather than timing, the [offline differential corpus](docs/differential-corpus.md)
+compares buffered/streamed normalization across fixed original mutation recipes and a licensed,
+immutable independent JSON test-data subset. It records all outcomes, exact replay identities,
+watchdog failures and bounded counterexample reductions; matching results are not a security proof.
+This tool is included in the source distribution, not the dependency-free runtime wheel:
+
+```bash
+python -m benchmarks.corpus_cli plan --output corpus-plan.json
+python -m benchmarks.corpus_cli run --smoke --output corpus-smoke.json
+```
+
 The dependency-free benchmark measures strict decode plus normalization for three deterministic
 synthetic request shapes. It records Python, operating system, processor description, logical CPU
 count, repeat count, latency distribution, throughput distribution, and `tracemalloc` peak memory:

@@ -54,6 +54,17 @@ jobs:
         run: uv run --frozen --extra dev python -m bandit -q -c pyproject.toml -r src
       - name: Test with branch coverage
         run: uv run --frozen --extra dev python -m pytest --cov=payload_palette --cov-branch --cov-report=term-missing
+      - name: Check offline corpus research code
+        if: matrix.python-version == '3.14' || matrix.os == 'windows-latest'
+        run: |
+          uv run --frozen --extra dev python -m mypy --strict benchmarks/corpus.py benchmarks/corpus_cases.py benchmarks/corpus_replay.py benchmarks/corpus_worker.py benchmarks/corpus_cli.py
+          uv run --frozen --extra dev python -m bandit -q benchmarks/corpus.py benchmarks/corpus_cases.py benchmarks/corpus_replay.py benchmarks/corpus_worker.py benchmarks/corpus_cli.py
+      - name: Test separate research-code branch coverage
+        if: matrix.python-version == '3.14' || matrix.os == 'windows-latest'
+        run: uv run --frozen --extra dev python -m pytest tests/test_corpus.py tests/test_corpus_admission.py tests/test_corpus_reports.py --cov=benchmarks.corpus --cov=benchmarks.corpus_cases --cov=benchmarks.corpus_replay --cov=benchmarks.corpus_worker --cov=benchmarks.corpus_cli --cov-branch --cov-fail-under=95 --cov-report=term-missing -W error::RuntimeWarning -W error::ResourceWarning
+      - name: Replay fixed offline corpus smoke partition
+        if: matrix.python-version == '3.14' || matrix.os == 'windows-latest'
+        run: uv run --frozen --extra dev python -m benchmarks.corpus_cli run --smoke --timeout 30 --output corpus-smoke-output.json
       - name: Verify generated demo
         run: uv run --frozen --extra dev python examples/build_demo.py --output-dir demo-output --check
       - name: Smoke-test benchmark protocol
