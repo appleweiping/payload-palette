@@ -38,8 +38,17 @@ responsibilities are documented in [API ingress integration](docs/ingress-integr
 
 Data URL headers are bounded before parameter parsing, and MIME allowlists or declaration conflicts
 are evaluated before Base64 decoding. Public manifest count fields remain JSON-serializable at
-CPython's minimum configurable integer-conversion limit. CLI file output uses a same-directory
-temporary file and atomic replacement so handled write failures preserve an existing manifest.
+CPython's minimum configurable integer-conversion limit. Request `normalize` CLI file output uses a
+same-directory temporary file and atomic replacement so handled write failures preserve an existing
+manifest.
+
+The separate declarative output CLI uses bounded configuration/input/report admission and fixed
+private parser, decoder and I/O error messages. It publishes only complete reports to new file names,
+never replacing or deleting a final destination. Diagnostic paths and rule identifiers remain
+data-bearing metadata; `--include-output` deliberately includes accepted output. Temporary cleanup
+checks file identity, but trusted directory ownership is required: this is not a hostile-filesystem
+sandbox or a power-loss durability guarantee. See the [output CLI contract](docs/output-cli.md) for
+uncertain publication, cleanup/control failures, stdout limitations and the explicit privacy boundary.
 
 Remote URL strings have a fixed pre-parse length ceiling. Literal address classification is kept
 stable across supported Python versions with an explicit table for loopback, private, shared,

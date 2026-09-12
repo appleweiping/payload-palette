@@ -64,6 +64,14 @@ from payload_palette.models import (
     NormalizedPart,
 )
 from payload_palette.normalizer import normalize, validate
+from payload_palette.output_config import (
+    OutputConfigError,
+    OutputConfigLimits,
+    export_output_config,
+    load_output_config,
+    load_output_config_json_bytes,
+    output_config_digest,
+)
 from payload_palette.output_schema import (
     JSONScalar,
     JSONValue,
@@ -152,6 +160,8 @@ __all__ = [
     "ManifestDifference",
     "NormalizationPolicy",
     "NormalizedPart",
+    "OutputConfigError",
+    "OutputConfigLimits",
     "OutputContractError",
     "OutputError",
     "OutputLimits",
@@ -184,7 +194,10 @@ __all__ = [
     "compare_manifests",
     "decode_json_bytes",
     "decode_stream",
+    "export_output_config",
     "export_output_schema",
+    "load_output_config",
+    "load_output_config_json_bytes",
     "load_output_schema",
     "load_output_schema_json_bytes",
     "manifest_schema",
@@ -194,6 +207,7 @@ __all__ = [
     "normalize_jsonl",
     "normalize_path",
     "normalize_stream",
+    "output_config_digest",
     "schema_for_annotation",
     "validate",
     "validate_async_output_chunks",

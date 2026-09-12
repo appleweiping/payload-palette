@@ -28,6 +28,7 @@ from payload_palette.ingress import (
 )
 from payload_palette.models import Manifest
 from payload_palette.normalizer import normalize
+from payload_palette.output_cli import OUTPUT_COMMANDS, add_output_commands, run_output_command
 from payload_palette.policy import ENVELOPE_NAMES, NormalizationPolicy, RemoteURLPolicy
 from payload_palette.streaming import normalize_path, normalize_stream
 
@@ -100,6 +101,7 @@ def _parser() -> argparse.ArgumentParser:
         command.add_argument("--json-errors", action="store_true")
     normalize_parser.add_argument("-o", "--output", default="-", help="output path or -")
     normalize_parser.add_argument("--compact", action="store_true", help="emit compact JSON")
+    add_output_commands(subparsers)
     return parser
 
 
@@ -286,7 +288,12 @@ def run(
 ) -> int:
     """Run the CLI with injectable streams and return a process exit code."""
 
-    args = _parser().parse_args(argv)
+    active_argv = sys.argv[1:] if argv is None else argv
+    if active_argv and active_argv[0] in OUTPUT_COMMANDS:
+        return run_output_command(
+            active_argv[0], active_argv[1:], stdin=stdin, stdout=stdout, stderr=stderr
+        )
+    args = _parser().parse_args(active_argv)
     try:
         active_policy = _policy(args)
         input_limit = _validate_input_limit(args.max_input_bytes)

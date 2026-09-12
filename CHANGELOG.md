@@ -6,6 +6,12 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added closed, bounded v1 JSON configuration import/export for existing synchronous output
+  pipelines and exact trim/choice built-ins, with normalized round-trip admission and configuration
+  SHA-256 identity.
+- Added offline `check-output-config` and `validate-output` commands over the existing pipeline,
+  with bounded private diagnostics, distinct acceptance/rejection/I/O exits, opt-in accepted
+  output, and complete no-overwrite report publication. Existing request commands are unchanged.
 - Added an offline, provenance-checked differential input corpus with preflighted work budgets,
   per-case process watchdogs, reproducible reports and evidence-preserving bounded shrinking.
   Original mutation tooling and a licensed immutable JSON test-data subset ship in the source
