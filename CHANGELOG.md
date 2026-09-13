@@ -6,6 +6,9 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added explicit-map native `CallAdapter`/`CallLimits`, with complete Python argument binding,
+  identity-preserving values/defaults, bounded pure typed validation and direct async ownership.
+  No target annotation evaluation, coercion, constructor callbacks or decorator/CLI is added.
 - Added closed, bounded v1 JSON configuration import/export for existing synchronous output
   pipelines and exact trim/choice built-ins, with normalized round-trip admission and configuration
   SHA-256 identity.

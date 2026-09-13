@@ -21,6 +21,7 @@ from payload_palette.batch import (
     normalize_batch,
     normalize_jsonl,
 )
+from payload_palette.call_validation import CallAdapter, CallLimits
 from payload_palette.dataclass_adapter import DataclassAdapter, DataclassLimits
 from payload_palette.diff import ManifestDifference, compare_manifests
 from payload_palette.errors import OutputError, PayloadValidationError, ValidationIssue
@@ -133,6 +134,8 @@ __all__ = [
     "AuditReceipt",
     "BatchRecord",
     "BatchReport",
+    "CallAdapter",
+    "CallLimits",
     "CompletedJSONValue",
     "DataclassAdapter",
     "DataclassLimits",

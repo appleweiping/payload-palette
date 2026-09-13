@@ -111,6 +111,7 @@ def schema_for_annotation(
 _BuildAnnotation = Callable[[object, int, OutputPath], OutputSchema]
 _CustomAnnotation = Callable[[object, int, OutputPath, _BuildAnnotation], OutputSchema | None]
 _CompiledAnnotation = Callable[[object, OutputSchema], None]
+_TypedDictMetadata = Callable[[object, OutputPath], tuple[object, object]]
 
 
 def _length_constraint(existing: int | None, requested: int | None, *, lower: bool) -> int | None:
@@ -127,6 +128,7 @@ def _compile_schema(
     limits: SchemaDefinitionLimits | None = None,
     custom: _CustomAnnotation | None = None,
     compiled: _CompiledAnnotation | None = None,
+    typeddict_metadata: _TypedDictMetadata | None = None,
 ) -> OutputSchema:
     """Shared private compiler; the public JSON adapter never enables custom records."""
     active_limits = _definition_limits(limits)
@@ -242,8 +244,11 @@ def _compile_schema(
                     ),
                 )
             if is_typeddict(current):
-                annotations = getattr(current, "__annotations__", None)
-                required_keys = getattr(current, "__required_keys__", None)
+                if typeddict_metadata is None:
+                    annotations = getattr(current, "__annotations__", None)
+                    required_keys = getattr(current, "__required_keys__", None)
+                else:
+                    annotations, required_keys = typeddict_metadata(current, path)
                 if (
                     type(annotations) is not dict
                     or len(annotations) > 256

@@ -11,6 +11,7 @@ from typing import (
     Annotated,
     ClassVar,
     Generic,
+    TypedDict,
     TypeVar,
     Union,
     cast,
@@ -191,7 +192,34 @@ def _dispose_fresh_coroutine(value: object) -> None:
         value.close()
 
 
-def _compile(model: type[object], limits: SchemaDefinitionLimits) -> _Plan:
+_TYPED_DICT_META = type(
+    cast(Callable[[str, dict[str, object]], type[object]], TypedDict)("_NativeMetadataMarker", {})
+)
+
+
+def _native_typeddict_metadata(current: object, path: OutputPath) -> tuple[object, object]:
+    """Read materialized stdlib metadata without evaluating a PEP 649 function."""
+    if type(current) is not _TYPED_DICT_META:
+        raise _definition_error("annotation_typeddict", "unsupported TypedDict metaclass", path)
+    namespace = type.__getattribute__(current, "__dict__")
+    annotations = namespace.get("__annotations__")
+    if type(annotations) is not dict:
+        native_slots = type.__dict__
+        annotate_slot = native_slots.get("__annotate__")
+        annotations_slot = native_slots.get("__annotations__")
+        if (
+            type(annotate_slot) is not types.GetSetDescriptorType
+            or type(annotations_slot) is not types.GetSetDescriptorType
+            or annotate_slot.__get__(current, type(current)) is not None
+        ):
+            raise _definition_error(
+                "annotation_unresolved", "TypedDict needs explicitly materialized annotations", path
+            )
+        annotations = annotations_slot.__get__(current, type(current))
+    return annotations, namespace.get("__required_keys__")
+
+
+def _compile(model: object, limits: SchemaDefinitionLimits, *, native_only: bool = False) -> _Plan:
     by_schema: dict[int, _Plan] = {}
     by_annotation: dict[int, _Plan] = {}
 
@@ -263,7 +291,9 @@ def _compile(model: type[object], limits: SchemaDefinitionLimits) -> _Plan:
                 "dataclass_definition", "malformed, generic or oversized dataclass", path
             )
         params = inspect.getattr_static(current, "__dataclass_params__", None)
-        if getattr(params, "init", None) is not True or _constructor_async(current):
+        if getattr(params, "init", None) is not True or (
+            not native_only and _constructor_async(current)
+        ):
             raise _definition_error(
                 "dataclass_constructor", "dataclass needs a synchronous init constructor", path
             )
@@ -304,10 +334,14 @@ def _compile(model: type[object], limits: SchemaDefinitionLimits) -> _Plan:
             default = _ABSENT if item.default is dataclasses.MISSING else item.default
             has_factory = item.default_factory is not dataclasses.MISSING
             factory = item.default_factory if has_factory else None
-            if has_factory and (
-                not callable(factory)
-                or _known_async(factory)
-                or _known_async(inspect.getattr_static(type(factory), "__call__", None))
+            if (
+                has_factory
+                and not native_only
+                and (
+                    not callable(factory)
+                    or _known_async(factory)
+                    or _known_async(inspect.getattr_static(type(factory), "__call__", None))
+                )
             ):
                 raise _definition_error(
                     "dataclass_factory",
@@ -327,14 +361,15 @@ def _compile(model: type[object], limits: SchemaDefinitionLimits) -> _Plan:
                     name, by_schema[id(child)], default, cast(Callable[[], object] | None, factory)
                 )
             )
-        try:
-            inspect.signature(current).bind(**{item.name: None for item in members})
-        except (TypeError, ValueError) as exc:
-            raise _definition_error(
-                "dataclass_constructor",
-                "constructor must accept all declared fields as keywords",
-                path,
-            ) from exc
+        if not native_only:
+            try:
+                inspect.signature(current).bind(**{item.name: None for item in members})
+            except (TypeError, ValueError) as exc:
+                raise _definition_error(
+                    "dataclass_constructor",
+                    "constructor must accept all declared fields as keywords",
+                    path,
+                ) from exc
         schema = OutputSchema(
             "object",
             properties={item.name: item.plan.schema for item in members},
@@ -350,7 +385,13 @@ def _compile(model: type[object], limits: SchemaDefinitionLimits) -> _Plan:
         )
         return schema
 
-    schema = _compile_schema(model, limits=limits, custom=custom, compiled=compiled)
+    schema = _compile_schema(
+        model,
+        limits=limits,
+        custom=custom,
+        compiled=compiled,
+        typeddict_metadata=_native_typeddict_metadata if native_only else None,
+    )
     return by_schema[id(schema)]
 
 

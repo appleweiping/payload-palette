@@ -7,6 +7,24 @@ locally without copying their implementation. A similar public API category or a
 test does not establish equivalent breadth, runtime performance, ecosystem compatibility, or
 repository scale.
 
+## Native callable-validation increment
+
+The original [native call adapter](native-call-validation.md) adds complete Python
+argument binding over an explicit annotation map, native identity/shared-default
+semantics, pure typed argument/optional-return checks with aggregate budgets, and
+direct async ownership. The [offline example](../examples/native_call_validation.py)
+exercises real calls, rejection, identity and non-rollback of a target side effect.
+Existing JSON/construction adapters, CLI/config wires and dependencies are unchanged.
+
+Comparison includes the frozen Pydantic
+[decorator contract](https://github.com/pydantic/pydantic/blob/2261ae19e2e09f792f06613360c83fc829238111/docs/concepts/validation_decorator.md).
+This slice does not infer/evaluate annotations, coerce wire inputs, offer a
+decorator/aliases/Field/Unpack/partial support, or claim the reference's broader
+callable/type ecosystem. Deferred TypedDict metadata needs explicit materialization.
+Focused tests and a handwritten inspect/direct-call oracle verify the implemented
+subset; full/platform/package/hosted acceptance is reported separately when run.
+The reference's full functionality, performance and scale remain OPEN.
+
 ## Frozen first-party references
 
 - [Guardrails 06d0ff2c5f9bcb493d976b76f885e37e41ce845d](https://github.com/guardrails-ai/guardrails/tree/06d0ff2c5f9bcb493d976b76f885e37e41ce845d),
@@ -38,7 +56,7 @@ these rows has been promoted to whole-reference equivalence.
 | Capability | Current evidence | Status / remaining acceptance work |
 |---|---|---|
 | Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py`, positional-array tests | Partial: JSON types, homogeneous/positional arrays, typed suffixes, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded anyOf/nullability. Recursive references, discriminators and full schema dialect test corpus remain open. |
-| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `schema_for_annotation`, annotation/dataclass/scalar/tuple tests | Partial: strict primitives, list/dict, fixed/variadic/empty tuples, unions, Literal, TypedDict, Annotated constraints, bounded dataclass construction/defaults/serialization and twelve concrete temporal/Decimal/UUID/IP scalar types. Generic models, forward references, broader model/validator semantics, callable validation, aliases and other standard type families remain open. |
+| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `CallAdapter`, `schema_for_annotation`, annotation/dataclass/scalar/tuple/call tests | Partial: strict primitives, containers/tuples, unions, Literal, TypedDict, constraints, bounded dataclass construction and twelve concrete typed scalars; explicit-map native callable validation with complete binding and direct async ownership. Generic models, forward references, decorator/coercion/alias semantics and broader model/validator/type families remain open. |
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
 | Async and concurrency | Actual asynchronous provider protocol; `AsyncValidationPipeline` with owned coroutines, bounded final-field scheduling, deadline/cancellation and isolation tests | Partial: asynchronous reject-only final semantic checks compose with synchronous repairs under shared invocation budgets. Async repair/filter scheduling, provider/stream integration of the new stage, isolated workers and distributed execution remain open. |
@@ -431,3 +449,47 @@ hosted results are tracked separately. No original parser/corpus/validation
 engine, dependency, version or old wire was changed to obtain these results.
 Services, model providers, arbitrary validator interchange, general schema/type
 coverage and complete reference-scale performance/integration remain open.
+
+## Native call validation acceptance (2026-09-12)
+
+The [explicit CallAdapter contract](native-call-validation.md) binds all five
+Python parameter kinds, validates aggregate native arguments before a single
+invocation, preserves accepted object identity, and optionally validates the
+native return. Native coroutine targets run directly in the awaiting caller.
+Target annotations are not evaluated; explicit admitted annotations use the
+existing schema/native traversal with narrowly opt-in private compiler hooks.
+Old JSON/dataclass construction paths and public formats retain their defaults.
+
+Final Windows CPython **3.14.5** full verification passed **2,702 tests**, with two
+genuine symbolic-link privilege skips, in **76.86 seconds**. All 136 delivery
+files retained their before-run hashes. Combined coverage was **98.4657%**
+(5,741/5,808 statements and 2,345/2,404 branches), retaining the 95% threshold
+and existing exclusions; resource/runtime warnings were errors.
+
+Independent Linux CPython **3.12.3** installed-wheel verification passed **524
+cases**, with no failures/skips, in **14.81 seconds**: all 147 new tests, 360
+existing adapter/scalar/positional regressions, and 17 independent/root probes.
+New-module coverage was 255/255 statements and 112/112 branches, with no
+exclusions. This is not full Linux coverage or full shared-helper coverage.
+All 30 installed runtime files matched source and all 35 wheel RECORD entries
+were checked; 115 selected source/configuration/documentation files remained
+unchanged and 26 imported modules resolved to the dedicated installed wheel.
+
+The handwritten binding oracle executed 2,665 vectors against real Python calls
+(414 accepted, 2,251 rejected). Linux3.12 had no inspect disagreement. A retained
+Windows3.14 inspect discrepancy does not change the oracle's real-invocation
+criterion. Root's actual keyword string-subclass RED preceded an exact-type
+admission fix and four formal regressions. Independent entry-boundary probes
+confirmed no len/hash/equality hook or target invocation during that rejection;
+Python's own argument-dictionary work is explicitly outside this boundary.
+
+Fresh Windows **3.11.2** and Linux installed wheels both ran the complete example
+under isolated normal and `-O` modes. Identity, defaults, async completion and
+non-rollback return failures matched handwritten expectations. Whole Ruff/format,
+strict Mypy, Bandit, offline frozen lock, sdist-to-wheel, strict Twine and wheel
+content checks passed. Root's artifact audit matched 30 runtime, four metadata
+and 127 source-distribution files. Final acceptance prose follows those tests;
+distributions are rebuilt/re-audited without runtime/test changes. Hosted checks
+remain exact-head obligations. General type coverage, arbitrary callables and
+validators, model/services integrations and both entire reference repositories
+remain open; this increment does not declare whole-repository equivalence.

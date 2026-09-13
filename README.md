@@ -65,6 +65,9 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
   temporal values, exact Decimal, UUID and IPv4/IPv6 values, with strict canonical wire contracts.
 - Validates [position-specific arrays and typed tuples](docs/positional-arrays.md), with explicit
   prefix/suffix schemas, fixed or variadic tuple fields and exact-position semantic rules.
+- Checks [native Python calls](docs/native-call-validation.md) using explicit annotation maps,
+  real argument binding, identity-preserving native values, shared resource budgets and optional
+  sync/async return checks, without evaluating target annotations or constructing new models.
 
 ## Installation
 
