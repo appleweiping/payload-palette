@@ -408,7 +408,8 @@ budget with synchronous rules. See the [async semantic contract](docs/async-vali
 For schema data interchange or trusted Python annotations, use `load_output_schema`,
 `export_output_schema` and `AnnotationAdapter`. Supported types include constrained scalars,
 nullable unions, lists, typed string-key maps, Literal and TypedDict. Unknown schema keywords,
-unresolved annotation strings and recursive definitions are rejected explicitly. Configured JSON
+unresolved annotation strings and recursive definitions are rejected explicitly. Acyclic root-local
+`$defs`/`$ref` reuse is compiled under the same work budgets, without external resolution. Configured JSON
 serialization preserves accepted values with an exact output-byte cap. See the
 [runtime schema/type contract](docs/runtime-schema-types.md) for integer semantics, supported
 subsets and resource bounds, or run `python examples/runtime_schema_adapter.py`.

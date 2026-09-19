@@ -6,6 +6,8 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Added bounded root-local `$defs`/`$ref` schema reuse with strict JSON Pointer escapes,
+  eager definition validation and budgeted acyclic expansion; no external resolution.
 - Integrated existing asynchronous final semantic checks into the generation/re-ask lifecycle,
   preserving synchronous behavior, shared invocation budgets, deadline provenance and awaited cleanup.
 - Added an offline repair/catalog-check/re-ask example with executable normal and optimized checks.

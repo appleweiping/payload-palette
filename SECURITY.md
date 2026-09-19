@@ -26,6 +26,12 @@ object. URL validation rejects syntactically ambiguous local-address spellings, 
 fetchers must still resolve, pin, and re-check every address and redirect to defend against DNS
 rebinding.
 
+Runtime schema import accepts only bounded root-local acyclic `$defs` references. It rejects
+external URLs, file references, deep pointers and recursive expansion before validation; it never
+resolves a reference through network or filesystem I/O. Direct Python-object callers must still
+bound the source document they construct, and the schema compiler enforces its own depth, node
+and character work budgets.
+
 Public manifest construction nevertheless consumes no more than 1,000,001 part entries and no more
 than 65 attribute entries before rejecting an over-limit custom container. It snapshots nested parts
 and revalidates the complete snapshot before serialization, so a forged length or post-construction

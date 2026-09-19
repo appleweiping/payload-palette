@@ -55,7 +55,7 @@ these rows has been promoted to whole-reference equivalence.
 
 | Capability | Current evidence | Status / remaining acceptance work |
 |---|---|---|
-| Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py`, positional-array tests | Partial: JSON types, homogeneous/positional arrays, typed suffixes, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded anyOf/nullability. Recursive references, discriminators and full schema dialect test corpus remain open. |
+| Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py`, positional-array and local-definition tests | Partial: JSON types, homogeneous/positional arrays, typed suffixes, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded anyOf/nullability and root-local acyclic `$defs`/`$ref`. Recursive/external references, discriminators and full schema dialect test corpus remain open. |
 | Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `CallAdapter`, `schema_for_annotation`, annotation/dataclass/scalar/tuple/call tests | Partial: strict primitives, containers/tuples, unions, Literal, TypedDict, constraints, bounded dataclass construction and twelve concrete typed scalars; explicit-map native callable validation with complete binding and direct async ownership. Generic models, forward references, decorator/coercion/alias semantics and broader model/validator/type families remain open. |
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
@@ -539,3 +539,32 @@ No live provider or remote service was called. Streaming generation, async
 repairs, provider SDKs, hosted services, general configuration interchange and
 the entire Guardrails/Pydantic reference obligations remain open. This delivery
 does not establish whole-repository functionality, scale or performance parity.
+
+## Local schema definition profile acceptance (2026-09-19)
+
+The next stacked branch adds bounded root-local acyclic `$defs`/`$ref` reuse to
+runtime schema import. Exactly one named definition is selected per reference;
+JSON Pointer `~0`/`~1` escapes are handled, unused definitions are validated,
+and expansion consumes the existing depth/node/character budgets. External
+resolution, deeper pointers, sibling constraints and recursive references remain
+explicitly unsupported. Compiled schemas have no retained link to mutable
+input and export expands definitions into an equivalent supported document.
+
+Three genuine missing-function assertions failed against the signed previous
+head before implementation. An initial focused run of the new and existing
+interchange suite passed 112 cases; further edge tests were added afterward,
+so that number is **not** final freeze acceptance. An independent Draft 2020-12
+oracle compared three supported reference-bearing documents with 520 values
+each (1,560 comparisons, including 42 accepted) and found no disagreement.
+The final focused regression set passed 265 cases. A subsequent Windows 3.14.5
+runtime/test-source full gate passed 2,839 package cases (two genuine Windows
+symlink-privilege skips) at 98.4968% combined coverage and 162 separate
+research cases at 99.2203% combined coverage. Frozen lock, Ruff, Mypy,
+Bandit, offline corpus/demo and benchmark-protocol checks passed. A source-built
+sdist/wheel passed strict archive and RECORD audits; fresh Windows and Linux
+wheel installs passed normal and optimized API/CLI probes, and bounded selected
+installed suites passed 165 cases on each platform. Because this acceptance
+prose followed the full gate, publication requires an archive audit bound to
+the exact final tree; hosted exact-head checks are tracked separately. The
+profile does not close the complete JSON Schema, Pydantic or Guardrails
+repository obligations.

@@ -58,7 +58,7 @@ def _definition_limits(limits: SchemaDefinitionLimits | None) -> SchemaDefinitio
 def load_output_schema(
     document: object, *, limits: SchemaDefinitionLimits | None = None
 ) -> OutputSchema:
-    """Compile strict schema data without reference resolution, coercion or imports.
+    """Compile strict schema data with bounded local definitions, without imports.
 
     Imported objects follow JSON Schema's default-open additionalProperties
     semantics. OutputSchema constructors remain default-closed, and export always
@@ -67,6 +67,8 @@ def load_output_schema(
 
     active_limits = _definition_limits(limits)
     active: set[int] = set()
+    active_definitions: set[str] = set()
+    definitions: dict[str, object] = {}
     nodes = 0
     characters = 0
 
@@ -87,8 +89,42 @@ def load_output_schema(
                     "schema_definition_keyword", "unsupported schema keyword", path
                 )
 
+    def definition_name(reference: object, path: OutputPath) -> str:
+        prefix = "#/$defs/"
+        if (
+            type(reference) is not str
+            or not reference.startswith(prefix)
+            or not len(prefix) < len(reference) <= len(prefix) + 2 * 256
+            or not _text(reference)
+        ):
+            raise _definition_error(
+                "schema_definition_reference", "only local $defs references are supported", path
+            )
+        charge(reference, path)
+        token = reference[len(prefix) :]
+        if "/" in token or "%" in token:
+            raise _definition_error(
+                "schema_definition_reference",
+                "reference must name one unencoded definition",
+                path,
+            )
+        name: list[str] = []
+        position = 0
+        while position < len(token):
+            if token[position] == "~":
+                if position + 1 >= len(token) or token[position + 1] not in "01":
+                    raise _definition_error(
+                        "schema_definition_reference", "invalid JSON Pointer escape", path
+                    )
+                name.append("~" if token[position + 1] == "0" else "/")
+                position += 2
+            else:
+                name.append(token[position])
+                position += 1
+        return "".join(name)
+
     def build(raw: object, depth: int, path: OutputPath) -> OutputSchema:
-        nonlocal nodes
+        nonlocal nodes, definitions
         nodes += 1
         if depth > active_limits.max_depth or nodes > active_limits.max_nodes:
             raise _definition_error(
@@ -101,7 +137,7 @@ def load_output_schema(
         if id(raw) in active:
             raise _definition_error("schema_definition_cycle", "cyclic schema definition", path)
         node = cast(dict[str, object], raw)
-        if len(node) > 8:
+        if len(node) > (9 if not path else 8):
             raise _definition_error("schema_definition_keyword", "too many schema keywords", path)
         if any(type(key) is not str or len(key) > 64 for key in node):
             raise _definition_error(
@@ -115,8 +151,48 @@ def load_output_schema(
                 raise _definition_error(
                     "schema_definition_dialect", "unsupported or nested schema dialect", path
                 )
+            if "$defs" in node:
+                if path:
+                    raise _definition_error(
+                        "schema_definition_keyword", "$defs is supported only at the root", path
+                    )
+                raw_definitions = node["$defs"]
+                if type(raw_definitions) is not dict or len(raw_definitions) > 256:
+                    raise _definition_error(
+                        "schema_definition_type", "$defs must be a bounded object", path
+                    )
+                for name in raw_definitions:
+                    if (
+                        type(name) is not str
+                        or not 1 <= len(name) <= 256
+                        or not _text(name)
+                        or "%" in name
+                    ):
+                        raise _definition_error(
+                            "schema_definition_type",
+                            "definition names must be bounded Unicode without percent signs",
+                            path,
+                        )
+                    charge(name, (*path, "$defs", name))
+                definitions = cast(dict[str, object], raw_definitions)
+            if "$ref" in node:
+                require_keys(node, {"$schema", "$defs", "$ref"} if not path else {"$ref"}, path)
+                name = definition_name(node["$ref"], path)
+                if name not in definitions:
+                    raise _definition_error(
+                        "schema_definition_reference", "unknown local definition", path
+                    )
+                if name in active_definitions:
+                    raise _definition_error(
+                        "schema_definition_cycle", "cyclic local definition reference", path
+                    )
+                active_definitions.add(name)
+                try:
+                    return build(definitions[name], depth + 1, (*path, "$ref"))
+                finally:
+                    active_definitions.remove(name)
             if "anyOf" in node:
-                require_keys(node, {"$schema", "anyOf"}, path)
+                require_keys(node, {"$schema", "anyOf", "$defs"} if not path else {"anyOf"}, path)
                 branches = node["anyOf"]
                 if (
                     type(branches) is not list
@@ -136,7 +212,7 @@ def load_output_schema(
                 )
             kind = node.get("type")
             if type(kind) is list:
-                require_keys(node, {"$schema", "type"}, path)
+                require_keys(node, {"$schema", "type", "$defs"} if not path else {"type"}, path)
                 if (
                     not 1 <= len(kind) <= min(len(_KINDS), active_limits.max_branches)
                     or any(type(item) is not str or item not in _KINDS for item in kind)
@@ -159,6 +235,8 @@ def load_output_schema(
                     path,
                 )
             allowed = {"$schema", "type", "enum", "const"}
+            if not path:
+                allowed.add("$defs")
             if kind in ("integer", "number"):
                 allowed |= {"minimum", "maximum"}
             if kind == "integer":
@@ -333,7 +411,16 @@ def load_output_schema(
         finally:
             active.remove(id(raw))
 
-    return build(document, 0, ())
+    root = build(document, 0, ())
+    # Unused definitions are still schema input: malformed or cyclic ones must
+    # not lurk in an otherwise valid document, and they consume the same budget.
+    for name, raw in definitions.items():
+        active_definitions.add(name)
+        try:
+            build(raw, 1, ("$defs", name))
+        finally:
+            active_definitions.remove(name)
+    return root
 
 
 def load_output_schema_json_bytes(

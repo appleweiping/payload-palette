@@ -24,8 +24,9 @@ silently ignores unknown or inapplicable keywords.
 | `type: string` | Unicode code-point `minLength`, `maxLength`, scalar `enum` or `const` |
 | `type: array` | Explicit schema-valued or false `items`, optional positional `prefixItems`, `minItems`, `maxItems` |
 | `type: object` | `properties`, `required`, boolean or schema-valued `additionalProperties` |
-| `anyOf` | 2–16 explicit schema branches; only `$schema` may accompany it |
-| `type: [...]` | 1–7 unique unconstrained scalar/object types; only `$schema` may accompany it |
+| `anyOf` | 2–16 explicit schema branches; only root `$schema`/`$defs` may accompany it |
+| `type: [...]` | 1–7 unique unconstrained scalar/object types; only root `$schema`/`$defs` may accompany it |
+| root `$defs` + `$ref` | At most 256 named local definitions; references name one definition with a JSON Pointer token |
 
 Type lists normalize to branches. Arrays still require explicit `items`, so nullable arrays
 use `anyOf`, not a bare array in a type list. Put branch-specific constraints inside `anyOf`.
@@ -38,14 +39,38 @@ and TypedDict adapters are **closed by default**. Exports always state `addition
 explicitly. Typed maps validate every undeclared member through their additional-properties schema.
 Shared acyclic schema dictionaries are copied; source mutation cannot alter a compiled schema.
 
+Local definitions can keep a document compact while reusing the same validation contract:
+
+```python
+schema = load_output_schema(
+    {
+        "$defs": {"label": {"type": "string", "minLength": 1}},
+        "type": "object",
+        "properties": {"first": {"$ref": "#/$defs/label"}, "second": {"$ref": "#/$defs/label"}},
+        "required": ["first", "second"],
+    }
+)
+assert schema.validate({"first": "north", "second": "south"}) == ()
+```
+
+Only root `$defs` and exact `#/$defs/<name>` references are accepted. The name uses JSON
+Pointer `~0`/`~1` escapes for literal `~`/`/`; arbitrary URIs, deeper pointers, sibling
+keywords on `$ref`, percent signs in definition names or reference tokens, and recursive
+references are rejected.
+Even unused definitions are validated. Definition expansion consumes the existing
+depth/node/character budgets, and export produces an equivalent expanded schema
+without `$defs`. No resolver fetches files or network resources.
+Run `python examples/local_schema_definitions.py` for a complete offline reuse/export example.
+
 The only accepted root `$schema` URI is `https://json-schema.org/draft/2020-12/schema`. It identifies
 the source keyword semantics, not a claim to implement the complete dialect. Nested dialects,
-general boolean schemas, empty schemas, `$ref`, `$defs`, recursion, `oneOf`, `allOf`, discriminators,
+general boolean schemas, empty schemas, external/deep/recursive references, `oneOf`, `allOf`, discriminators,
 regex/format, dependent conditions, arbitrary extensions and custom vocabulary are
 rejected. Resource/finite-number restrictions also remain part of Payload's runtime contract.
 The specific `items: false` form closes the suffix after any declared prefix; it is not general
 boolean-schema support. See [positional arrays](positional-arrays.md) for length semantics.
-See the first-party descriptions of [schema combination](https://json-schema.org/understanding-json-schema/reference/combining)
+See the first-party descriptions of [local definitions and references](https://json-schema.org/understanding-json-schema/structuring),
+[schema combination](https://json-schema.org/understanding-json-schema/reference/combining)
 and [numeric types](https://json-schema.org/understanding-json-schema/reference/numeric).
 
 ## Integer representation and faithful exchange
