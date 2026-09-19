@@ -493,3 +493,49 @@ distributions are rebuilt/re-audited without runtime/test changes. Hosted checks
 remain exact-head obligations. General type coverage, arbitrary callables and
 validators, model/services integrations and both entire reference repositories
 remain open; this increment does not declare whole-repository equivalence.
+
+## Asynchronous semantic generation acceptance (2026-09-12)
+
+The [generation/re-ask lifecycle](generation.md#asynchronous-semantic-checks-and-re-asking)
+now accepts the existing asynchronous validation pipeline directly. One existing
+validation owner settles all checks before acceptance, re-asking or propagation;
+generation shares invocation accounting and its absolute deadline across attempts.
+Trusted runtime causes remain distinct from user-provided diagnostic codes. The
+original synchronous generation and standalone validation wires are unchanged.
+
+Final Windows CPython **3.14.5** full verification passed **2,816 tests**, with
+two genuine symbolic-link privilege skips, in **215.45 seconds**. All 145 delivery
+files retained their before-run hashes. Coverage was **98.4821%** (5,802/5,869
+statements and 2,373/2,432 branches), above the unchanged 95% gate. Generation
+coverage was 97.5728% and async validation 99.0050%; existing exclusions were not
+expanded. ResourceWarning and RuntimeWarning were errors. Whole Ruff/format,
+strict Mypy and Bandit checks passed.
+
+Independent fresh installed-wheel acceptance ran on Windows **3.14.5** and
+Linux **3.12.3**, with both isolated normal and optimized interpreters. The same
+**30 distinct independent cases**, **41 frozen signed-old transcripts** and
+complete offline example passed in each combination. These are repeated
+cross-platform/mode checks, not 120 distinct cases or a full Linux-suite claim.
+The independent cases cover publication copying/encoding, lifetime budgets,
+deadline ownership, borrowed resources, cancellation/control and private feedback.
+The 41 baseline cases compare complete reports, requests and callback traces
+against pre-change bytes, rather than regenerating expectations from the candidate.
+
+Root's two actual final-publication deadline failures preceded the narrow repair
+and six formal before/equal/after-deadline regressions. An accepted report is
+materialized once, then checked before publication; late work returns deadline
+termination with no output while preserving known usage, bytes and settled calls.
+Ordinary encoding failures and genuine controls propagate. Independent installed
+probes confirmed these boundaries, including awaited child cleanup.
+
+The wheel built from the source archive passed strict Twine and wheel-content
+checks. Complete byte audits matched 30 runtime, four metadata and 136 source
+archive files; all 35 wheel RECORD entries were independently checked. Source,
+installed runtime and non-bytecode dependency files remained stable on both
+platforms. The final source archive includes this acceptance prose and is audited
+separately; hosted checks remain tied to the eventual exact commit.
+
+No live provider or remote service was called. Streaming generation, async
+repairs, provider SDKs, hosted services, general configuration interchange and
+the entire Guardrails/Pydantic reference obligations remain open. This delivery
+does not establish whole-repository functionality, scale or performance parity.

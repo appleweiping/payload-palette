@@ -92,11 +92,15 @@ performing I/O or allocating its own memory.
 
 The scheduler admits present bindings in declaration order. It reserves from the **remaining**
 `pipeline.limits.max_invocations` after all synchronous initial/repair/final calls. Reservation is
-not invocation: `OutputReport.invocations` counts actual callback factory calls, not a queued job
+not invocation: the asynchronous portion of `OutputReport.invocations` counts actual callback
+factory calls, not a queued job
 that timed out before entry or whose method lookup failed. A reserved check canceled before entry
 still consumed that run's admission slot; it is not replaced or retried. On budget exhaustion,
 already-admitted work settles and the run is rejected explicitly. Missing optional paths use neither
 a reservation nor an invocation.
+
+The synchronous portion retains its earlier admission count, charged before method lookup and
+snapshot. Consequently a failed getter counts as one synchronous admission but zero async entries.
 
 Only up to `max_concurrency` callback tasks and fresh snapshots are live at once; the scheduler does
 not eagerly materialize a snapshot or launch a task for every binding. At most 256 job/result records
@@ -149,8 +153,11 @@ accept partial JSON or disable decoding through a special invalid byte-limit val
 
 The report omits output by default but is **not a redactor**: validator messages, paths and requested
 output may contain sensitive data. No logger, network exporter or persistent history is installed.
-The generation runner and incremental byte consumers still accept their existing synchronous
-pipeline type; this API does not silently change their cancellation, repair or provider contracts.
+The [generation runner](generation.md) also accepts this exact async pipeline explicitly, sharing
+the invocation budget across responses and the remaining absolute generation deadline with this
+owner. Its async integration adds one bounded pre-callback JSON boundary copy; standalone calls
+here retain their existing copy/error behavior. Incremental byte consumers still accept their
+existing synchronous pipeline type. No streaming/provider contract is implicitly changed.
 
 ## Reference scope and verification
 

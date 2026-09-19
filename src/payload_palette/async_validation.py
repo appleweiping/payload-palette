@@ -7,12 +7,14 @@ import inspect
 import re
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import Any, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
-from .errors import ValidationIssue
+from .errors import PayloadValidationError, ValidationIssue
 from .ingress import decode_json_bytes
 from .output_schema import (
     JSONValue,
+    OutputContractError,
+    OutputLimits,
     OutputPath,
     _schema_path_possible,
     _text,
@@ -106,6 +108,23 @@ class _Completion:
     error: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _ValidationExecution:
+    """Private scheduler provenance, independent of user codes or capped issues."""
+
+    report: OutputReport
+    terminal_cause: Literal["validator_budget", "validation_deadline"] | None = None
+    deadline_origin: Literal["validation", "generation"] | None = None
+
+
+class _ValidationIngressFailure(Exception):
+    """Only known pre-callback JSON admission errors cross this private boundary."""
+
+    def __init__(self, error: PayloadValidationError | OutputContractError) -> None:
+        self.error = error
+        super().__init__("asynchronous generation input admission failed")
+
+
 @dataclass(slots=True)
 class _Job:
     index: int
@@ -189,7 +208,9 @@ class AsyncValidationPipeline:
                     f"rule {binding.rule_id!r} has a path incompatible with the schema"
                 )
 
-    async def _execute(self, job: _Job, value: JSONValue, deadline: float) -> _Completion:
+    async def _execute(
+        self, job: _Job, value: JSONValue, deadline: float, *, limits: OutputLimits | None = None
+    ) -> _Completion:
         loop = asyncio.get_running_loop()
         task = cast(asyncio.Task[Any], asyncio.current_task())
         baseline = task.cancelling()
@@ -201,7 +222,7 @@ class AsyncValidationPipeline:
         job.timer = timer
         try:
             async with timer:
-                copied = snapshot_json(value, self.pipeline.limits)
+                copied = snapshot_json(value, self.pipeline.limits if limits is None else limits)
                 if loop.time() >= end:
                     return _Completion(_error(code), error=True)
                 method = job.binding.validator.check
@@ -256,28 +277,82 @@ class AsyncValidationPipeline:
     async def _validate(
         self, value: object, *, encoded: bool = False, max_input_bytes: int = 4_000_000
     ) -> OutputReport:
+        return (
+            await self._validate_execution(value, encoded=encoded, max_input_bytes=max_input_bytes)
+        ).report
+
+    async def _validate_execution(
+        self,
+        value: object,
+        *,
+        encoded: bool = False,
+        max_input_bytes: int = 4_000_000,
+        active_pipeline: ValidationPipeline | None = None,
+        outer_deadline: float | None = None,
+    ) -> _ValidationExecution:
+        # The wrapper/rule admission is not repeated: runtime getters belong
+        # inside the existing worker contract and invocation accounting.
+        pipeline = self.pipeline if active_pipeline is None else active_pipeline
         loop = asyncio.get_running_loop()
         parent = cast(asyncio.Task[Any], asyncio.current_task())
         baseline = parent.cancelling()
         deadline = loop.time() + self.policy.total_timeout_seconds
+        origin: Literal["validation", "generation"] = "validation"
+        if outer_deadline is not None and outer_deadline <= deadline:
+            deadline, origin = outer_deadline, "generation"
         # Deliver already pending cancellation before entering synchronous code.
         await asyncio.sleep(0)
-        if encoded:
-            value = decode_json_bytes(
-                cast(bytes | bytearray | memoryview, value), max_input_bytes=max_input_bytes
-            )
-        base = self.pipeline.validate(value)
+        try:
+            if encoded:
+                value = decode_json_bytes(
+                    cast(bytes | bytearray | memoryview, value), max_input_bytes=max_input_bytes
+                )
+            if active_pipeline is not None:
+                # The integration's extra bounded boundary copy distinguishes
+                # ingress rejection from same-class failures after callbacks.
+                # It does not repeat schema validation, repairs or checks.
+                value = snapshot_json(value, pipeline.limits)
+        except (PayloadValidationError, OutputContractError) as error:
+            if active_pipeline is None:
+                raise
+            raise _ValidationIngressFailure(error) from error
+        if active_pipeline is not None:
+            _pending_cancel(parent, baseline)
+            if loop.time() >= deadline:
+                ingress_deadline = _error("validation_deadline")
+                return _ValidationExecution(
+                    OutputReport(
+                        False,
+                        (ValidationIssue(ingress_deadline.code, ingress_deadline.message),),
+                        (),
+                        0,
+                        None,
+                    ),
+                    "validation_deadline",
+                    origin,
+                )
+        base = pipeline.validate(value)
         _pending_cancel(parent, baseline)
         jobs: dict[asyncio.Task[_Completion], _Job] = {}
         active: set[asyncio.Task[_Completion]] = set()
         completed: dict[int, _Completion] = {}
-        budget = self.pipeline.limits.max_invocations - base.invocations
+        budget = pipeline.limits.max_invocations - base.invocations
         position = 0
-        failure: str | None = None
+        failure: Literal["validator_budget", "validation_deadline"] | None = None
         if loop.time() >= deadline:
             failure = "validation_deadline"
         elif not base.valid:
-            return base
+            # Only the sync runtime can build an error outcome; a user's
+            # reserved-looking rejection code is not scheduler provenance.
+            return _ValidationExecution(
+                base,
+                "validator_budget"
+                if any(
+                    item.status == "error" and item.code == "validator_budget"
+                    for item in base.outcomes
+                )
+                else None,
+            )
         document = base.output if failure is None else None
         primary: BaseException | None = None
         try:
@@ -301,7 +376,7 @@ class AsyncValidationPipeline:
                         failure = "validator_budget"
                         break
                     job = _Job(index, binding)
-                    coroutine = self._execute(job, current, deadline)
+                    coroutine = self._execute(job, current, deadline, limits=pipeline.limits)
                     try:
                         task = asyncio.create_task(coroutine)
                     except BaseException:
@@ -373,19 +448,23 @@ class AsyncValidationPipeline:
             )
             if not decision.valid:
                 rejected = True
-                if len(issues) < self.pipeline.limits.max_issues:
+                if len(issues) < pipeline.limits.max_issues:
                     issues.append(ValidationIssue(decision.code, decision.message, path))
         _pending_cancel(parent, baseline)
         if loop.time() >= deadline:
             failure = "validation_deadline"
             rejected = True
-        if failure is not None and len(issues) < self.pipeline.limits.max_issues:
+        if failure is not None and len(issues) < pipeline.limits.max_issues:
             decision = _error(failure)
             issues.append(ValidationIssue(decision.code, decision.message))
-        return OutputReport(
-            not rejected,
-            tuple(issues),
-            tuple(outcomes),
-            base.invocations + sum(job.entered for job in jobs.values()),
-            None if rejected else base._output_json,
+        return _ValidationExecution(
+            OutputReport(
+                not rejected,
+                tuple(issues),
+                tuple(outcomes),
+                base.invocations + sum(job.entered for job in jobs.values()),
+                None if rejected else base._output_json,
+            ),
+            failure,
+            origin if failure == "validation_deadline" else None,
         )

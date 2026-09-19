@@ -6,6 +6,9 @@ All notable changes are documented here. Versions follow Semantic Versioning.
 
 ### Added
 
+- Integrated existing asynchronous final semantic checks into the generation/re-ask lifecycle,
+  preserving synchronous behavior, shared invocation budgets, deadline provenance and awaited cleanup.
+- Added an offline repair/catalog-check/re-ask example with executable normal and optimized checks.
 - Added explicit-map native `CallAdapter`/`CallLimits`, with complete Python argument binding,
   identity-preserving values/defaults, bounded pure typed validation and direct async ownership.
   No target annotation evaluation, coercion, constructor callbacks or decorator/CLI is added.

@@ -68,6 +68,8 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
 - Checks [native Python calls](docs/native-call-validation.md) using explicit annotation maps,
   real argument binding, identity-preserving native values, shared resource budgets and optional
   sync/async return checks, without evaluating target annotations or constructing new models.
+- Integrates [bounded generation and re-asking](docs/generation.md) with synchronous repairs and
+  awaited parallel final semantic checks, sharing validator/token/response budgets across attempts.
 
 ## Installation
 
@@ -419,10 +421,12 @@ cancellation. No provider SDK, credentials, or network behavior is installed imp
 
 ```bash
 python examples/generate_validated_output.py
+python examples/generate_with_async_checks.py
 ```
 
 This executable offline example exercises an invalid classification, re-ask feedback, and a valid
-second response. [The generation lifecycle contract](docs/generation.md) describes the adapter API,
+second response. The async-check example additionally verifies synchronous repairs followed by
+awaited catalog checks and one shared ten-invocation budget. [The generation lifecycle contract](docs/generation.md) describes the adapter API,
 privacy rules, cancellation behavior, and the distinction between reported usage and provider billing.
 
 For incremental UTF-8 output, `IncrementalOutputSession.feed(bytes)` emits immutable complete-value

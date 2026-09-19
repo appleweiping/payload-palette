@@ -9,6 +9,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Literal, Protocol, cast
 
+from payload_palette.async_validation import AsyncValidationPipeline, _ValidationIngressFailure
 from payload_palette.errors import PayloadValidationError, ValidationIssue
 from payload_palette.output_schema import (
     JSONValue,
@@ -302,13 +303,13 @@ class AsyncGenerationRunner:
     cancellation propagates as CancelledError and is never converted to a report.
     """
 
-    pipeline: ValidationPipeline
+    pipeline: ValidationPipeline | AsyncValidationPipeline
     provider: AsyncModelProvider
     policy: GenerationPolicy = field(default_factory=GenerationPolicy)
 
     def __post_init__(self) -> None:
         if (
-            type(self.pipeline) is not ValidationPipeline
+            type(self.pipeline) not in (ValidationPipeline, AsyncValidationPipeline)
             or type(self.policy) is not GenerationPolicy
         ):
             raise ValueError("pipeline and policy must be their declared immutable types")
@@ -324,9 +325,15 @@ class AsyncGenerationRunner:
             raise ValueError("instruction must be a bounded Unicode scalar string")
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self.policy.total_timeout_seconds
-        schema_json = json.dumps(
-            self.pipeline.schema.json_schema(), ensure_ascii=True, allow_nan=False
+        async_pipeline = (
+            self.pipeline if isinstance(self.pipeline, AsyncValidationPipeline) else None
         )
+        pipeline = (
+            self.pipeline.pipeline
+            if isinstance(self.pipeline, AsyncValidationPipeline)
+            else self.pipeline
+        )
+        schema_json = json.dumps(pipeline.schema.json_schema(), ensure_ascii=True, allow_nan=False)
         attempts: list[GenerationAttempt] = []
         reported_tokens = 0
         response_bytes = 0
@@ -370,7 +377,9 @@ class AsyncGenerationRunner:
             if response_bytes >= self.policy.max_total_response_bytes:
                 return report("response_budget")
             remaining_calls = self.policy.max_validator_invocations - invocations
-            if remaining_calls <= 0 and self.pipeline.rules:
+            if remaining_calls <= 0 and (
+                pipeline.rules or (async_pipeline is not None and async_pipeline.rules)
+            ):
                 return report("validator_budget")
             request = GenerationRequest(
                 instruction,
@@ -452,30 +461,64 @@ class AsyncGenerationRunner:
                 return report("response_budget")
             payload = response.text.encode("utf-8")
             active_pipeline = replace(
-                self.pipeline,
+                pipeline,
                 limits=replace(
-                    self.pipeline.limits,
-                    max_invocations=max(
-                        1, min(self.pipeline.limits.max_invocations, remaining_calls)
-                    ),
+                    pipeline.limits,
+                    max_invocations=max(1, min(pipeline.limits.max_invocations, remaining_calls)),
                 ),
             )
+            execution = None
+            if async_pipeline is not None and loop.time() >= deadline:
+                _propagate_cancellation()
+                append("timeout", response.usage, len(payload))
+                return report("deadline")
             try:
-                validated = active_pipeline.validate_json_bytes(
-                    payload, max_input_bytes=self.policy.max_response_bytes
+                if async_pipeline is None:
+                    validated = active_pipeline.validate_json_bytes(
+                        payload, max_input_bytes=self.policy.max_response_bytes
+                    )
+                else:
+                    execution = await async_pipeline._validate_execution(
+                        payload,
+                        encoded=True,
+                        max_input_bytes=self.policy.max_response_bytes,
+                        active_pipeline=active_pipeline,
+                        outer_deadline=deadline,
+                    )
+                    validated = execution.report
+            except _ValidationIngressFailure as exc:
+                _propagate_cancellation()
+                if loop.time() >= deadline:
+                    append("timeout", response.usage, len(payload))
+                    return report("deadline")
+                feedback = (
+                    _feedback(exc.error.issues, pipeline.schema, self.policy.max_feedback)
+                    if isinstance(exc.error, PayloadValidationError)
+                    else (GenerationFeedback("output_contract"),)
                 )
+                append("invalid_output", response.usage, len(payload), problems=feedback)
             except PayloadValidationError as exc:
-                feedback = _feedback(exc.issues, self.pipeline.schema, self.policy.max_feedback)
+                if async_pipeline is not None:
+                    raise
+                feedback = _feedback(exc.issues, pipeline.schema, self.policy.max_feedback)
                 append("invalid_output", response.usage, len(payload), problems=feedback)
             except OutputContractError:
+                if async_pipeline is not None:
+                    raise
                 feedback = (GenerationFeedback("output_contract"),)
                 append("invalid_output", response.usage, len(payload), problems=feedback)
             else:
                 invocations += validated.invocations
-                feedback = _feedback(
-                    validated.issues, self.pipeline.schema, self.policy.max_feedback
-                )
-                if any(
+                feedback = _feedback(validated.issues, pipeline.schema, self.policy.max_feedback)
+                if execution is not None:
+                    await asyncio.sleep(0)
+                    _propagate_cancellation()
+                    if execution.deadline_origin == "generation" or loop.time() >= deadline:
+                        append("timeout", response.usage, len(payload), validated.invocations)
+                        return report("deadline")
+                if (
+                    execution is not None and execution.terminal_cause == "validator_budget"
+                ) or any(
                     outcome.status == "error" and outcome.code == "validator_budget"
                     for outcome in validated.outcomes
                 ):
@@ -487,7 +530,9 @@ class AsyncGenerationRunner:
                         feedback,
                     )
                     return report("validator_budget")
-                if any(outcome.status == "error" for outcome in validated.outcomes):
+                if (
+                    execution is not None and execution.terminal_cause == "validation_deadline"
+                ) or any(outcome.status == "error" for outcome in validated.outcomes):
                     append(
                         "validator_error",
                         response.usage,
@@ -502,7 +547,15 @@ class AsyncGenerationRunner:
                     return report("deadline")
                 if validated.valid:
                     append("accepted", response.usage, len(payload), validated.invocations)
-                    return report("accepted", validated.output)
+                    accepted = report("accepted", validated.output)
+                    if async_pipeline is not None:
+                        # Output copying/encoding also belongs to the new async
+                        # run's deadline; never publish a late accepted result.
+                        _propagate_cancellation()
+                        if loop.time() >= deadline:
+                            attempts[-1] = replace(attempts[-1], status="timeout")
+                            return report("deadline")
+                    return accepted
                 append(
                     "invalid_output", response.usage, len(payload), validated.invocations, feedback
                 )
