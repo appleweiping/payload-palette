@@ -5,7 +5,9 @@ from __future__ import annotations
 import inspect
 import json
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Literal, Protocol, cast
 
 from payload_palette.errors import ValidationIssue
@@ -80,6 +82,13 @@ class RuleBinding:
     on_fail: FailureAction = "reject"
 
     def __post_init__(self) -> None:
+        self._validate_declaration()
+        method = getattr(self.validator, "check", None)
+        if not callable(method) or inspect.iscoroutinefunction(method):
+            raise ValueError("validator.check must be a synchronous callable")
+
+    def _validate_declaration(self) -> None:
+        """Recheck immutable rule fields without replaying a validator lookup."""
         if (
             type(self.rule_id) is not str
             or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", self.rule_id) is None
@@ -93,13 +102,56 @@ class RuleBinding:
             for part in self.path
         ):
             raise ValueError("path segments must be bounded Unicode keys or nonnegative indices")
-        if self.on_fail not in ("reject", "fix", "filter"):
+        if type(self.on_fail) is not str or self.on_fail not in ("reject", "fix", "filter"):
             raise ValueError("on_fail must be reject, fix, or filter")
         if self.on_fail == "filter" and (not self.path or type(self.path[-1]) is not str):
             raise ValueError("filter requires an object-member path")
+
+
+@dataclass(frozen=True, slots=True)
+class ArrayRuleBinding:
+    """Apply one semantic rule to each present item of a declared homogeneous array."""
+
+    rule_id: str
+    array_path: OutputPath
+    item_path: OutputPath
+    validator: OutputValidator
+    on_fail: FailureAction = "reject"
+    max_items: int = field(default=1_000, kw_only=True)
+
+    def __post_init__(self) -> None:
+        self._validate_declaration()
         method = getattr(self.validator, "check", None)
         if not callable(method) or inspect.iscoroutinefunction(method):
             raise ValueError("validator.check must be a synchronous callable")
+
+    def _validate_declaration(self) -> None:
+        """Recheck selector fields without replaying a validator lookup."""
+        if (
+            type(self.rule_id) is not str
+            or re.fullmatch(r"[a-z][a-z0-9_]{0,63}", self.rule_id) is None
+        ):
+            raise ValueError("rule_id must be a lowercase identifier of at most 64 characters")
+        for label, path in (("array_path", self.array_path), ("item_path", self.item_path)):
+            if type(path) is not tuple or len(path) > 31:
+                raise ValueError(f"{label} must be a tuple with at most 31 segments")
+            for part in path:
+                if type(part) is int:
+                    if not 0 <= part < 100_000:
+                        raise ValueError(f"{label} has an invalid index")
+                elif type(part) is str:
+                    if len(part) > 256 or not _text(part):
+                        raise ValueError(f"{label} has an invalid object key")
+                else:
+                    raise ValueError(f"{label} requires exact keys or indices")
+        if len(self.array_path) + len(self.item_path) + 1 > 32:
+            raise ValueError("concrete array item path exceeds 32 segments")
+        if type(self.on_fail) is not str or self.on_fail not in ("reject", "fix", "filter"):
+            raise ValueError("on_fail must be reject, fix, or filter")
+        if self.on_fail == "filter" and (not self.item_path or type(self.item_path[-1]) is not str):
+            raise ValueError("filter requires an object-member item path")
+        if type(self.max_items) is not int or not 1 <= self.max_items <= 10_000:
+            raise ValueError("max_items must be an exact integer between 1 and 10000")
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +242,82 @@ def _check_binding_path(schema: OutputSchema, binding: RuleBinding) -> None:
         raise ValueError(f"rule {binding.rule_id!r} has a path incompatible with the schema")
 
 
+def _check_array_binding_path(schema: OutputSchema, binding: ArrayRuleBinding) -> None:
+    """Admit only a declared homogeneous array; no dynamic-key or branch dispatch."""
+
+    current = schema
+    for part in binding.array_path:
+        _check_selector_node(current)
+        if current.kind == "object" and type(part) is str and part in current.properties:
+            current = current.properties[part]
+        elif current.kind == "array" and type(part) is int:
+            if current.max_length is not None and part >= current.max_length:
+                break
+            item = current._array_item(part)
+            if item is None:
+                break
+            current = item
+        else:
+            break
+    else:
+        _check_selector_node(current)
+        if (
+            current.kind == "array"
+            and type(current.items) is OutputSchema
+            and current.prefix_items is None
+            and _safe_item_path_possible(current.items, binding.item_path)
+        ):
+            return
+    raise ValueError(f"rule {binding.rule_id!r} has an incompatible array item path")
+
+
+def _check_selector_node(schema: OutputSchema) -> None:
+    """Reject forged child types before schema/path traversal invokes them."""
+
+    if type(schema) is not OutputSchema or type(schema.kind) is not str:
+        raise ValueError("array selector requires exact OutputSchema nodes")
+    if type(schema.properties) not in (dict, MappingProxyType) or any(
+        type(key) is not str or type(child) is not OutputSchema
+        for key, child in schema.properties.items()
+    ):
+        raise ValueError("array selector requires exact object property schemas")
+    if schema.items is not None and type(schema.items) is not OutputSchema:
+        raise ValueError("array selector requires exact array item schema")
+    if schema.prefix_items is not None and (
+        type(schema.prefix_items) is not tuple
+        or any(type(child) is not OutputSchema for child in schema.prefix_items)
+    ):
+        raise ValueError("array selector requires exact positional schemas")
+    if schema.max_length is not None and type(schema.max_length) is not int:
+        raise ValueError("array selector requires exact length constraints")
+    for branches in (schema.any_of, schema.one_of, schema.all_of):
+        if type(branches) is not tuple or any(
+            type(child) is not OutputSchema for child in branches
+        ):
+            raise ValueError("array selector requires exact combination branches")
+
+
+def _safe_item_path_possible(schema: OutputSchema, path: OutputPath) -> bool:
+    _check_selector_node(schema)
+    if not path:
+        return True
+    if schema.kind == "all_of":
+        return all(_safe_item_path_possible(branch, path) for branch in schema.all_of)
+    if schema.kind in ("union", "one_of"):
+        branches = schema.any_of if schema.kind == "union" else schema.one_of
+        return any(_safe_item_path_possible(branch, path) for branch in branches)
+    segment, remaining = path[0], path[1:]
+    if schema.kind == "object" and type(segment) is str:
+        child = schema.properties.get(segment)
+        return child is not None and _safe_item_path_possible(child, remaining)
+    if schema.kind == "array" and type(segment) is int:
+        if schema.max_length is not None and segment >= schema.max_length:
+            return False
+        child = schema._array_item(segment)
+        return child is not None and _safe_item_path_possible(child, remaining)
+    return False
+
+
 @dataclass(frozen=True, slots=True)
 class ValidationPipeline:
     """Validate structure, execute ordered rules, and recheck the final output.
@@ -201,7 +329,7 @@ class ValidationPipeline:
     """
 
     schema: OutputSchema
-    rules: tuple[RuleBinding, ...] = ()
+    rules: tuple[RuleBinding | ArrayRuleBinding, ...] = ()
     limits: OutputLimits = field(default_factory=OutputLimits)
 
     def __post_init__(self) -> None:
@@ -210,15 +338,23 @@ class ValidationPipeline:
         if (
             type(self.rules) is not tuple
             or len(self.rules) > 256
-            or any(type(rule) is not RuleBinding for rule in self.rules)
+            or any(type(rule) not in (RuleBinding, ArrayRuleBinding) for rule in self.rules)
         ):
-            raise ValueError("rules must be a tuple containing at most 256 RuleBinding objects")
+            raise ValueError("rules must be a tuple containing at most 256 rule bindings")
+        if any(type(rule.rule_id) is not str for rule in self.rules):
+            raise ValueError("rule ids must be exact strings")
+        for rule in self.rules:
+            rule._validate_declaration()
         if len({rule.rule_id for rule in self.rules}) != len(self.rules):
             raise ValueError("rule ids must be unique within a pipeline")
         if type(self.limits) is not OutputLimits:
             raise ValueError("limits must be OutputLimits")
         for binding in self.rules:
-            _check_binding_path(self.schema, binding)
+            if type(binding) is RuleBinding:
+                _check_binding_path(self.schema, binding)
+            else:
+                array_binding = cast(ArrayRuleBinding, binding)
+                _check_array_binding_path(self.schema, array_binding)
 
     def validate_json_bytes(
         self, payload: bytes | bytearray | memoryview, *, max_input_bytes: int = 4_000_000
@@ -236,12 +372,16 @@ class ValidationPipeline:
         exhausted = False
 
         def record(
-            binding: RuleBinding, phase: str, status: OutcomeStatus, result: RuleResult
+            binding: RuleBinding | ArrayRuleBinding,
+            path: OutputPath,
+            phase: str,
+            status: OutcomeStatus,
+            result: RuleResult,
         ) -> None:
             outcomes.append(
                 RuleOutcome(
                     binding.rule_id,
-                    output_path(binding.path),
+                    output_path(path),
                     phase,
                     status,
                     result.code,
@@ -249,18 +389,21 @@ class ValidationPipeline:
                 )
             )
             if status in ("rejected", "error") and len(issues) < self.limits.max_issues:
-                issues.append(
-                    ValidationIssue(result.code, result.message, output_path(binding.path))
-                )
+                issues.append(ValidationIssue(result.code, result.message, output_path(path)))
 
-        def call(binding: RuleBinding, current: JSONValue, phase: str) -> RuleResult:
+        def call(
+            binding: RuleBinding | ArrayRuleBinding,
+            path: OutputPath,
+            current: JSONValue,
+            phase: str,
+        ) -> RuleResult:
             nonlocal invocations, exhausted
             if invocations >= self.limits.max_invocations:
                 exhausted = True
                 result = RuleResult(
                     False, "validator_budget", "validator invocation limit exceeded"
                 )
-                record(binding, phase, "error", result)
+                record(binding, path, phase, "error", result)
                 raise _CallbackFailure
             invocations += 1
             try:
@@ -268,7 +411,7 @@ class ValidationPipeline:
                     snapshot_json(current, self.limits),
                     RuleContext(
                         binding.rule_id,
-                        binding.path,
+                        path,
                         cast(Literal["initial", "repair", "final"], phase),
                     ),
                 )
@@ -282,66 +425,99 @@ class ValidationPipeline:
                 result = RuleResult(
                     False, "validator_contract", "validator raised or returned an invalid result"
                 )
-                record(binding, phase, "error", result)
+                record(binding, path, phase, "error", result)
                 raise _CallbackFailure from exc
+
+        def targets(
+            binding: RuleBinding | ArrayRuleBinding, phase: Literal["initial", "final"]
+        ) -> Iterator[OutputPath]:
+            if type(binding) is RuleBinding:
+                yield binding.path
+                return
+            array_binding = cast(ArrayRuleBinding, binding)
+            present, array = _get(document, array_binding.array_path)
+            if not present:
+                return
+            # An earlier valid JSON repair may temporarily violate this schema.
+            # Let the existing final whole-document schema pass report that.
+            if type(array) is not list:
+                return
+            if len(array) > array_binding.max_items:
+                record(
+                    binding,
+                    array_binding.array_path,
+                    phase,
+                    "error",
+                    RuleResult(False, "validator_fanout", "array rule item limit exceeded"),
+                )
+                return
+            for index in range(len(array)):
+                yield (*array_binding.array_path, index, *array_binding.item_path)
 
         if not issues:
             for binding in self.rules:
                 if exhausted:
                     break
-                present, current = _get(document, binding.path)
-                if not present:
-                    continue
-                try:
-                    result = call(binding, current, "initial")
-                    if result.valid:
-                        record(binding, "initial", "passed", result)
-                    elif binding.on_fail == "reject":
-                        record(binding, "initial", "rejected", result)
-                    elif binding.on_fail == "filter":
-                        _, parent = _get(document, binding.path[:-1])
-                        del cast(dict[str, JSONValue], parent)[cast(str, binding.path[-1])]
-                        changed = True
-                        record(binding, "initial", "filtered", result)
-                    elif result.fix is _NO_FIX:
-                        record(binding, "initial", "rejected", result)
-                    else:
-                        try:
-                            replacement = snapshot_json(result.fix, self.limits)
-                        except OutputContractError:
-                            record(
-                                binding,
-                                "repair",
-                                "error",
-                                RuleResult(
-                                    False, "invalid_fix", "fix violates JSON resource/type contract"
-                                ),
-                            )
-                            continue
-                        checked = call(binding, replacement, "repair")
-                        if not checked.valid:
-                            record(binding, "repair", "rejected", checked)
-                            continue
-                        document = _set(document, binding.path, replacement)
-                        try:
-                            snapshot_json(document, self.limits)
-                        except OutputContractError:
-                            record(
-                                binding,
-                                "repair",
-                                "error",
-                                RuleResult(
-                                    False,
-                                    "output_budget",
-                                    "repaired output exceeds resource limits",
-                                ),
-                            )
-                            exhausted = True
-                            break
-                        changed = True
-                        record(binding, "repair", "fixed", result)
-                except _CallbackFailure:
-                    continue
+                for path in targets(binding, "initial"):
+                    if exhausted:
+                        break
+                    present, current = _get(document, path)
+                    if not present:
+                        continue
+                    try:
+                        result = call(binding, path, current, "initial")
+                        if result.valid:
+                            record(binding, path, "initial", "passed", result)
+                        elif binding.on_fail == "reject":
+                            record(binding, path, "initial", "rejected", result)
+                        elif binding.on_fail == "filter":
+                            _, parent = _get(document, path[:-1])
+                            del cast(dict[str, JSONValue], parent)[cast(str, path[-1])]
+                            changed = True
+                            record(binding, path, "initial", "filtered", result)
+                        elif result.fix is _NO_FIX:
+                            record(binding, path, "initial", "rejected", result)
+                        else:
+                            try:
+                                replacement = snapshot_json(result.fix, self.limits)
+                            except OutputContractError:
+                                record(
+                                    binding,
+                                    path,
+                                    "repair",
+                                    "error",
+                                    RuleResult(
+                                        False,
+                                        "invalid_fix",
+                                        "fix violates JSON resource/type contract",
+                                    ),
+                                )
+                                continue
+                            checked = call(binding, path, replacement, "repair")
+                            if not checked.valid:
+                                record(binding, path, "repair", "rejected", checked)
+                                continue
+                            document = _set(document, path, replacement)
+                            try:
+                                snapshot_json(document, self.limits)
+                            except OutputContractError:
+                                record(
+                                    binding,
+                                    path,
+                                    "repair",
+                                    "error",
+                                    RuleResult(
+                                        False,
+                                        "output_budget",
+                                        "repaired output exceeds resource limits",
+                                    ),
+                                )
+                                exhausted = True
+                                break
+                            changed = True
+                            record(binding, path, "repair", "fixed", result)
+                    except _CallbackFailure:
+                        continue
             if changed:
                 # Recheck whole-document bounds, since individually bounded fixes can accumulate.
                 try:
@@ -357,16 +533,23 @@ class ValidationPipeline:
                     for binding in self.rules:
                         if exhausted:
                             break
-                        present, current = _get(document, binding.path)
-                        if not present:
-                            continue
-                        try:
-                            result = call(binding, current, "final")
-                            record(
-                                binding, "final", "passed" if result.valid else "rejected", result
-                            )
-                        except _CallbackFailure:
-                            continue
+                        for path in targets(binding, "final"):
+                            if exhausted:
+                                break
+                            present, current = _get(document, path)
+                            if not present:
+                                continue
+                            try:
+                                result = call(binding, path, current, "final")
+                                record(
+                                    binding,
+                                    path,
+                                    "final",
+                                    "passed" if result.valid else "rejected",
+                                    result,
+                                )
+                            except _CallbackFailure:
+                                continue
         valid = not issues
         serialized = (
             json.dumps(document, ensure_ascii=True, allow_nan=False, separators=(",", ":"))

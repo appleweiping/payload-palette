@@ -83,6 +83,7 @@ from payload_palette.output_schema import (
     OutputSchema,
 )
 from payload_palette.output_validation import (
+    ArrayRuleBinding,
     OutputReport,
     OutputValidator,
     RuleBinding,
@@ -125,6 +126,7 @@ __all__ = [
     "MAX_MODEL_INTEGER_DIGITS",
     "SCHEMA_DIALECT",
     "AnnotationAdapter",
+    "ArrayRuleBinding",
     "AsyncGenerationRunner",
     "AsyncModelProvider",
     "AsyncOutputPolicy",

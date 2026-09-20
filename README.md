@@ -72,6 +72,8 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
   sync/async return checks, without evaluating target annotations or constructing new models.
 - Offers a separate [trusted declaration decorator](docs/native-call-decorator.md) for strict
   sync/async native calls when the caller explicitly authorizes reading source annotations.
+- Applies one [bounded semantic rule to each item](docs/array-item-validation.md) of a declared
+  homogeneous JSON array, with concrete index diagnostics and shared callback budgets.
 - Integrates [bounded generation and re-asking](docs/generation.md) with synchronous repairs and
   awaited parallel final semantic checks, sharing validator/token/response budgets across attempts.
 
