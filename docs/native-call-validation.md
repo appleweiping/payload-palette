@@ -6,6 +6,11 @@ coerce strings, reconstruct dataclasses, or replace objects with their JSON
 projections. Run `python examples/native_call_validation.py` for an offline
 sync/async example with identity checks and observable failure boundaries.
 
+For a separate opt-in declaration workflow, see the
+[trusted native-call decorator](native-call-decorator.md). It may evaluate
+Python 3.14 deferred annotations when explicitly authorized;
+`CallAdapter` itself never gains that behavior.
+
 ```python
 from decimal import Decimal
 
@@ -187,7 +192,8 @@ Native identity/defaults, deferred annotation non-execution, scalar composition,
 aggregate boundaries and direct-async ownership have focused regression tests.
 Full-suite/platform/package/hosted evidence is recorded separately when run.
 
-This is not a Pydantic decorator compatibility layer. Decorators, annotation
-inference/evaluation, Any/coercion, partials, aliases/Field/Unpack, broader types,
+This is not a Pydantic decorator compatibility layer. The separate trusted
+decorator supports a narrow annotation-derived workflow, but this explicit-map
+API never reads target annotations. Any/coercion, partials, aliases/Field/Unpack, broader types,
 custom validators, JSON-to-call/config/CLI transport, scheduling and hard callback
 preemption remain open. See the [whole-reference inventory](parity-validation.md).

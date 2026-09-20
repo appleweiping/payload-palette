@@ -18,9 +18,11 @@ Existing JSON/construction adapters, CLI/config wires and dependencies are uncha
 
 Comparison includes the frozen Pydantic
 [decorator contract](https://github.com/pydantic/pydantic/blob/2261ae19e2e09f792f06613360c83fc829238111/docs/concepts/validation_decorator.md).
-This slice does not infer/evaluate annotations, coerce wire inputs, offer a
-decorator/aliases/Field/Unpack/partial support, or claim the reference's broader
-callable/type ecosystem. Deferred TypedDict metadata needs explicit materialization.
+The adapter slice does not infer/evaluate annotations or coerce wire inputs.
+The separate [native decorator](native-call-decorator.md) adds an explicitly
+trusted, strict annotation-derived wrapper; it is not Pydantic's broader
+decorator/aliases/Field/Unpack/partial ecosystem. Deferred TypedDict metadata
+still needs explicit materialization.
 Focused tests and a handwritten inspect/direct-call oracle verify the implemented
 subset; full/platform/package/hosted acceptance is reported separately when run.
 The reference's full functionality, performance and scale remain OPEN.
@@ -56,7 +58,7 @@ these rows has been promoted to whole-reference equivalence.
 | Capability | Current evidence | Status / remaining acceptance work |
 |---|---|---|
 | Strict nested structured JSON output | `OutputSchema`, `tests/test_output_schema.py`, `tests/test_schema_interchange.py`, `tests/test_one_of_schema.py`, `tests/test_schema_all_of.py`, `tests/test_tagged_one_of_schema.py`, positional-array and local-definition tests | Partial: JSON types, homogeneous/positional arrays, typed suffixes, typed maps, properties, required/extra keys, scalar enums, numeric/length bounds, bounded `anyOf`/`oneOf`/`allOf`/nullability, a proven-disjoint tagged `oneOf` profile and root-local acyclic `$defs`/`$ref`. Recursive/external references, keyword-only and general Boolean subschemas, general discriminators and full schema dialect test corpus remain open. |
-| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `CallAdapter`, `schema_for_annotation`, annotation/dataclass/scalar/tuple/call tests | Partial: strict primitives, containers/tuples, unions, Literal, TypedDict, constraints, bounded dataclass construction and twelve concrete typed scalars; explicit-map native callable validation with complete binding and direct async ownership. Generic models, forward references, decorator/coercion/alias semantics and broader model/validator/type families remain open. |
+| Schema generation and Python type system | `AnnotationAdapter`, `DataclassAdapter`, `CallAdapter`, `native_validated_call`, `schema_for_annotation`, annotation/dataclass/scalar/tuple/call tests | Partial: strict primitives, containers/tuples, unions, Literal, TypedDict, constraints, bounded dataclass construction and twelve concrete typed scalars; explicit-map native callable validation and an opt-in trusted-annotation wrapper with direct async ownership. Generic models, forward references, Pydantic-compatible decorator/coercion/alias semantics and broader model/validator/type families remain open. |
 | Validator composition and failure actions | `OutputValidator`, `RuleBinding`, `ValidationPipeline`, `tests/test_output_validation.py` | Partial: synchronous exact-path reject/fix/object-filter actions, immediate repair check and final verification. Wildcard dispatch, broader action semantics and interoperable validator serialization remain open. |
 | Model invocation and re-asking | `AsyncModelProvider`, `AsyncGenerationRunner`, `tests/test_generation.py` | Partial: provider-neutral complete-output lifecycle, bounded schema/semantic re-asks, explicit usage and offline failure tests. Live provider adapters, provider interoperability, richer field regeneration and generation-quality evaluations remain open. |
 | Async and concurrency | Actual asynchronous provider protocol; `AsyncValidationPipeline` with owned coroutines, bounded final-field scheduling, deadline/cancellation and isolation tests | Partial: asynchronous reject-only final semantic checks compose with synchronous repairs under shared invocation budgets. Async repair/filter scheduling, provider/stream integration of the new stage, isolated workers and distributed execution remain open. |

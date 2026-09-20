@@ -70,6 +70,8 @@ Payload Palette establishes that boundary once. It is useful at API ingress, bef
 - Checks [native Python calls](docs/native-call-validation.md) using explicit annotation maps,
   real argument binding, identity-preserving native values, shared resource budgets and optional
   sync/async return checks, without evaluating target annotations or constructing new models.
+- Offers a separate [trusted declaration decorator](docs/native-call-decorator.md) for strict
+  sync/async native calls when the caller explicitly authorizes reading source annotations.
 - Integrates [bounded generation and re-asking](docs/generation.md) with synchronous repairs and
   awaited parallel final semantic checks, sharing validator/token/response budgets across attempts.
 

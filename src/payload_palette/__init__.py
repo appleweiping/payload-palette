@@ -64,6 +64,7 @@ from payload_palette.models import (
     Manifest,
     NormalizedPart,
 )
+from payload_palette.native_call_decorator import native_validated_call
 from payload_palette.normalizer import normalize, validate
 from payload_palette.output_config import (
     OutputConfigError,
@@ -204,6 +205,7 @@ __all__ = [
     "load_output_schema",
     "load_output_schema_json_bytes",
     "manifest_schema",
+    "native_validated_call",
     "normalize",
     "normalize_batch",
     "normalize_json_bytes",
