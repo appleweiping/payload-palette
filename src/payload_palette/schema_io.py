@@ -137,7 +137,7 @@ def load_output_schema(
         if id(raw) in active:
             raise _definition_error("schema_definition_cycle", "cyclic schema definition", path)
         node = cast(dict[str, object], raw)
-        if len(node) > (9 if not path else 8):
+        if len(node) > (10 if not path else 9):
             raise _definition_error("schema_definition_keyword", "too many schema keywords", path)
         if any(type(key) is not str or len(key) > 64 for key in node):
             raise _definition_error(
@@ -145,6 +145,13 @@ def load_output_schema(
             )
         active.add(id(raw))
         try:
+            if "title" in node:
+                title = node["title"]
+                if type(title) is not str or len(title) > 2_048 or not _text(title):
+                    raise _definition_error(
+                        "schema_definition_constraint", "invalid schema title", (*path, "title")
+                    )
+                charge(title, (*path, "title"))
             if "$schema" in node and (
                 path or type(node["$schema"]) is not str or node["$schema"] != SCHEMA_DIALECT
             ):
@@ -176,7 +183,11 @@ def load_output_schema(
                     charge(name, (*path, "$defs", name))
                 definitions = cast(dict[str, object], raw_definitions)
             if "$ref" in node:
-                require_keys(node, {"$schema", "$defs", "$ref"} if not path else {"$ref"}, path)
+                require_keys(
+                    node,
+                    {"$schema", "$defs", "$ref", "title"} if not path else {"$ref", "title"},
+                    path,
+                )
                 name = definition_name(node["$ref"], path)
                 if name not in definitions:
                     raise _definition_error(
@@ -195,8 +206,16 @@ def load_output_schema(
                 combination = next(
                     keyword for keyword in ("anyOf", "oneOf", "allOf") if keyword in node
                 )
+                tagged = combination == "oneOf" and "discriminator" in node
                 require_keys(
-                    node, {"$schema", combination, "$defs"} if not path else {combination}, path
+                    node,
+                    (
+                        {"$schema", combination, "$defs", "title"}
+                        if not path
+                        else {combination, "title"}
+                    )
+                    | ({"discriminator"} if tagged else set()),
+                    path,
                 )
                 branches = node[combination]
                 if (
@@ -208,10 +227,128 @@ def load_output_schema(
                         f"{combination} requires a bounded list of 2..16 schemas",
                         path,
                     )
+                branch_names: list[str] = []
+                property_name: str | None = None
+                mapped_names: dict[str, str] = {}
+                if tagged:
+                    raw_discriminator = node["discriminator"]
+                    if (
+                        type(raw_discriminator) is not dict
+                        or len(raw_discriminator) != 2
+                        or any(type(key) is not str for key in raw_discriminator)
+                        or "propertyName" not in raw_discriminator
+                        or "mapping" not in raw_discriminator
+                    ):
+                        raise _definition_error(
+                            "schema_definition_discriminator",
+                            "discriminator requires propertyName and mapping",
+                            (*path, "discriminator"),
+                        )
+                    name = raw_discriminator["propertyName"]
+                    mapping = raw_discriminator["mapping"]
+                    if type(name) is not str or not 1 <= len(name) <= 256 or not _text(name):
+                        raise _definition_error(
+                            "schema_definition_discriminator",
+                            "invalid discriminator property name",
+                            (*path, "discriminator", "propertyName"),
+                        )
+                    if type(mapping) is not dict or not 2 <= len(mapping) <= 256:
+                        raise _definition_error(
+                            "schema_definition_discriminator",
+                            "discriminator mapping must have 2..256 entries",
+                            (*path, "discriminator", "mapping"),
+                        )
+                    property_name = name
+                    charge(name, (*path, "discriminator", "propertyName"))
+                    for tag, reference in mapping.items():
+                        if type(tag) is not str or len(tag) > 2_048 or not _text(tag):
+                            raise _definition_error(
+                                "schema_definition_discriminator",
+                                "invalid discriminator tag",
+                                (*path, "discriminator", "mapping"),
+                            )
+                        charge(tag, (*path, "discriminator", "mapping"))
+                        mapped_names[tag] = definition_name(
+                            reference, (*path, "discriminator", "mapping")
+                        )
+                    for index, branch in enumerate(branches):
+                        if (
+                            type(branch) is not dict
+                            or len(branch) != 1
+                            or any(type(key) is not str for key in branch)
+                            or "$ref" not in branch
+                        ):
+                            raise _definition_error(
+                                "schema_definition_discriminator",
+                                "tagged alternatives must be direct local references",
+                                (*path, combination, index),
+                            )
+                        branch_name = definition_name(branch["$ref"], (*path, combination, index))
+                        if branch_name not in definitions:
+                            raise _definition_error(
+                                "schema_definition_reference",
+                                "unknown local definition",
+                                (*path, combination, index),
+                            )
+                        target = definitions[branch_name]
+                        if (
+                            type(target) is not dict
+                            or any(type(key) is not str for key in target)
+                            or type(target.get("type")) is not str
+                            or target["type"] != "object"
+                        ):
+                            raise _definition_error(
+                                "schema_definition_discriminator",
+                                "tagged alternative must name a direct object definition",
+                                (*path, combination, index),
+                            )
+                        branch_names.append(branch_name)
                 compiled = tuple(
                     build(branch, depth + 1, (*path, combination, index))
                     for index, branch in enumerate(branches)
                 )
+                discriminator_map: dict[str, int] = {}
+                if property_name is not None:
+                    if any(name not in definitions for name in branch_names):
+                        raise _definition_error(
+                            "schema_definition_reference", "unknown local definition", path
+                        )
+                    for index, branch in enumerate(compiled):
+                        if (
+                            branch.kind != "object"
+                            or property_name not in branch.required
+                            or property_name not in branch.properties
+                        ):
+                            raise _definition_error(
+                                "schema_definition_discriminator",
+                                "tagged alternatives require a common required field",
+                                (*path, combination, index),
+                            )
+                        tag_schema = branch.properties[property_name]
+                        if tag_schema.kind != "string" or tag_schema.enum is None:
+                            raise _definition_error(
+                                "schema_definition_discriminator",
+                                "tagged alternatives require string literal fields",
+                                (*path, combination, index),
+                            )
+                        for tag in tag_schema.enum:
+                            if type(tag) is not str or tag in discriminator_map:
+                                raise _definition_error(
+                                    "schema_definition_discriminator",
+                                    "tagged alternative values overlap",
+                                    (*path, combination, index),
+                                )
+                            discriminator_map[tag] = index
+                    if (
+                        len(discriminator_map) > 256
+                        or {tag: branch_names[index] for tag, index in discriminator_map.items()}
+                        != mapped_names
+                    ):
+                        raise _definition_error(
+                            "schema_definition_discriminator",
+                            "discriminator mapping disagrees with branch tags",
+                            (*path, "discriminator"),
+                        )
                 return OutputSchema(
                     cast(
                         SchemaKind,
@@ -220,10 +357,16 @@ def load_output_schema(
                     any_of=compiled if combination == "anyOf" else (),
                     one_of=compiled if combination == "oneOf" else (),
                     all_of=compiled if combination == "allOf" else (),
+                    discriminator_property=property_name,
+                    discriminator_map=discriminator_map,
                 )
             kind = node.get("type")
             if type(kind) is list:
-                require_keys(node, {"$schema", "type", "$defs"} if not path else {"type"}, path)
+                require_keys(
+                    node,
+                    {"$schema", "type", "$defs", "title"} if not path else {"type", "title"},
+                    path,
+                )
                 if (
                     not 1 <= len(kind) <= min(len(_KINDS), active_limits.max_branches)
                     or any(type(item) is not str or item not in _KINDS for item in kind)
@@ -245,7 +388,7 @@ def load_output_schema(
                     "an explicit supported type, anyOf, oneOf or allOf is required",
                     path,
                 )
-            allowed = {"$schema", "type", "enum", "const"}
+            allowed = {"$schema", "type", "enum", "const", "title"}
             if not path:
                 allowed.add("$defs")
             if kind in ("integer", "number"):

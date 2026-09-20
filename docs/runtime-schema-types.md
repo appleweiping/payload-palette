@@ -25,20 +25,48 @@ silently ignores unknown or inapplicable keywords.
 | `type: array` | Explicit schema-valued or false `items`, optional positional `prefixItems`, `minItems`, `maxItems` |
 | `type: object` | `properties`, `required`, boolean or schema-valued `additionalProperties` |
 | `anyOf` | 2–16 explicit schema branches; only root `$schema`/`$defs` may accompany it |
-| `oneOf` | 2–16 explicit schema branches; exactly one must accept, and only root `$schema`/`$defs` may accompany it |
+| `oneOf` | 2–16 explicit schema branches; exactly one must accept; a strictly checked tagged-object profile is also supported |
 | `allOf` | 2–16 supported typed, combination or local-reference branches; every branch must accept the same value |
 | `type: [...]` | 1–7 unique unconstrained scalar/object types; only root `$schema`/`$defs` may accompany it |
 | root `$defs` + `$ref` | At most 256 named local definitions; references name one definition with a JSON Pointer token |
+| `title` | Optional bounded presentation annotation on supported nodes; ignored for validation and omitted on normalized export |
 
 Type lists normalize to branches. Arrays still require explicit `items`, so nullable arrays
 use `anyOf` or `oneOf`, not a bare array in a type list. Put branch-specific constraints inside
-the combination's branches. `anyOf` accepts the first matching branch; `oneOf` evaluates every
+the combination's branches. `anyOf` accepts the first matching branch; untagged `oneOf` evaluates every
 branch and rejects both zero matches and overlap with the same `schema_one_of` issue at the
 candidate path. `allOf` evaluates every branch against the same unmodified value and collapses
 any failure to one `schema_all_of` issue at that path. Branch-local errors and undeclared object
 keys do not enter combination issues.
 Run `python examples/one_of_schema.py` for an offline exact-one/local-reference roundtrip.
 Run `python examples/all_of_schema.py` for an offline intersection and closed-object example.
+Run `python examples/tagged_one_of_schema.py` for a bounded tagged-object example.
+
+### Tagged `oneOf` import profile
+
+A `oneOf` node may have an OpenAPI-style `discriminator` with exactly `propertyName` and
+`mapping`. In this profile, its 2–16 alternatives must be direct local `$ref` entries to root
+`$defs` objects (a definition that only aliases another `$ref` is not a direct object). Each
+referenced object must declare the same **required** string tag property
+with a `const` or nonempty scalar-string `enum`. Tag sets must be disjoint. The explicit mapping
+must cover exactly those tags and point each tag to its own alternative; multiple tags may point
+to one alternative. Mapping has at most 256 entries, with bounded Unicode string tags, local-only
+references, and the same definition character budget. Malformed or ambiguous mappings are
+rejected before any output is validated. Inline alternatives, implicit mappings, nonstring tags,
+aliases, nested tag paths and general OpenAPI component graphs are not supported.
+
+Because these preconditions prove that at most one branch can match, validation dispatches only
+the tagged branch. Missing/unknown/wrong-type tags and an invalid selected branch produce one
+`schema_one_of` issue at the union path, without exposing tag values or branch-local errors.
+If a tagged union is reached through an `additionalProperties` dynamic key, its issue path is
+limited to the nearest declared ancestor so the private key does not enter reports.
+The selected branch still consumes the shared `max_schema_steps` budget; generic `oneOf` continues
+to visit every branch. The `discriminator` is an OpenAPI hint, not a JSON Schema assertion that
+can override `oneOf` acceptance. The portable/normalized export expands `$defs` and omits the
+mapping and `title`, so import→export→import preserves **acceptance**, not annotation bytes or
+the dispatch optimization. These `title` strings are bounded to 2,048 Unicode scalar characters
+each and charged to the definition character budget; `description`, `default`, `format` and other
+annotations remain unsupported.
 
 `allOf` is logical AND, **not** object-schema extension. For example, intersecting a branch
 requiring only `a` with `additionalProperties: false` and another requiring only `b` with
@@ -86,7 +114,7 @@ Run `python examples/local_schema_definitions.py` for a complete offline reuse/e
 The only accepted root `$schema` URI is `https://json-schema.org/draft/2020-12/schema`. It identifies
 the source keyword semantics, not a claim to implement the complete dialect. Nested dialects,
 general boolean schemas, empty schemas, external/deep/recursive references, single/empty
-`allOf` and keyword-only combination branches, discriminators,
+`allOf` and keyword-only combination branches, general discriminators,
 regex/format, dependent conditions, arbitrary extensions and custom vocabulary are
 rejected. Resource/finite-number restrictions also remain part of Payload's runtime contract.
 The specific `items: false` form closes the suffix after any declared prefix; it is not general
@@ -178,7 +206,8 @@ definition node/depth/character budgets.
 
 `OutputLimits.max_schema_steps` defaults to 100,000, with a hard ceiling of 1,000,000. Every visited
 schema/value pair consumes one step, shared across candidate branches in a validation pass;
-`oneOf` keeps counting even after a first match, because later overlap must be detected;
+untagged `oneOf` keeps counting even after a first match, because later overlap must be detected;
+the proven-disjoint tagged profile counts only its selected branch;
 `allOf` checks every branch as well. Budget
 exhaustion raises `OutputContractError`, never a success or ordinary branch mismatch. Existing
 JSON depth/nodes/characters and issue limits still apply.

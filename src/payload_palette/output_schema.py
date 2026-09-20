@@ -149,6 +149,8 @@ class OutputSchema:
     prefix_items: tuple[OutputSchema, ...] | None = None
     one_of: tuple[OutputSchema, ...] = ()
     all_of: tuple[OutputSchema, ...] = ()
+    discriminator_property: str | None = None
+    discriminator_map: Mapping[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if type(self.integer_mode) is not str or self.integer_mode not in ("strict", "json"):
@@ -192,6 +194,46 @@ class OutputSchema:
             self.kind != "all_of" and self.all_of
         ):
             raise ValueError("only all_of schemas require 2..16 all_of branches")
+        if type(self.discriminator_map) not in (dict, MappingProxyType):
+            raise ValueError("discriminator_map must be a mapping")
+        if len(self.discriminator_map) > 256:
+            raise ValueError("discriminator_map exceeds 256 entries")
+        if self.discriminator_property is None and self.discriminator_map:
+            raise ValueError("discriminator_map requires a discriminator_property")
+        mapping_entries = tuple(self.discriminator_map.items())
+        if any(
+            type(tag) is not str or len(tag) > 2_048 or not _text(tag) or type(index) is not int
+            for tag, index in mapping_entries
+        ):
+            raise ValueError("discriminator_map requires bounded string keys and integer indices")
+        safe_mapping = dict(mapping_entries)
+        if self.discriminator_property is not None:
+            if (
+                self.kind != "one_of"
+                or type(self.discriminator_property) is not str
+                or not 1 <= len(self.discriminator_property) <= 256
+                or not _text(self.discriminator_property)
+                or not 2 <= len(safe_mapping) <= 256
+            ):
+                raise ValueError("invalid tagged one_of discriminator")
+            expected: dict[str, int] = {}
+            for index, branch in enumerate(self.one_of):
+                if (
+                    branch.kind != "object"
+                    or self.discriminator_property not in branch.required
+                    or self.discriminator_property not in branch.properties
+                ):
+                    raise ValueError("tagged branches require a common required property")
+                tag_schema = branch.properties[self.discriminator_property]
+                if tag_schema.kind != "string" or tag_schema.enum is None:
+                    raise ValueError("tagged branches require string literal tags")
+                for tag in tag_schema.enum:
+                    if type(tag) is not str or len(tag) > 2_048 or tag in expected:
+                        raise ValueError("tagged branch values must be unique bounded strings")
+                    expected[tag] = index
+            if len(expected) > 256 or safe_mapping != expected:
+                raise ValueError("discriminator_map must exactly match branch tags")
+        object.__setattr__(self, "discriminator_map", MappingProxyType(safe_mapping))
         if type(self.properties) not in (dict, MappingProxyType) or len(self.properties) > 256:
             raise ValueError("properties must be a mapping with at most 256 entries")
         if any(
@@ -330,7 +372,12 @@ class OutputSchema:
             else:
                 truncated = True
 
-        def visit(schema: OutputSchema, current: JSONValue, path: OutputPath) -> None:
+        def visit(
+            schema: OutputSchema,
+            current: JSONValue,
+            path: OutputPath,
+            private_path: OutputPath | None = None,
+        ) -> None:
             nonlocal issues, truncated
             if truncated:
                 return
@@ -343,12 +390,43 @@ class OutputSchema:
                 for branch in schema.all_of:
                     issues, truncated = [], False
                     try:
-                        visit(branch, current, path)
+                        visit(branch, current, path, private_path)
                         failed = failed or bool(issues) or truncated
                     finally:
                         issues, truncated = original_issues, original_truncated
                 if failed:
-                    issue("schema_all_of", "value does not satisfy every intersection branch", path)
+                    issue(
+                        "schema_all_of",
+                        "value does not satisfy every intersection branch",
+                        private_path if private_path is not None else path,
+                    )
+                return
+            if schema.kind == "one_of" and schema.discriminator_property is not None:
+                branch_index = None
+                if type(current) is dict:
+                    tag = current.get(schema.discriminator_property)
+                    if type(tag) is str:
+                        branch_index = schema.discriminator_map.get(tag)
+                if branch_index is None:
+                    issue(
+                        "schema_one_of",
+                        "value does not satisfy exactly one branch",
+                        private_path if private_path is not None else path,
+                    )
+                    return
+                original_issues, original_truncated = issues, truncated
+                issues, truncated = [], False
+                try:
+                    visit(schema.one_of[branch_index], current, path, private_path)
+                    matched = not issues and not truncated
+                finally:
+                    issues, truncated = original_issues, original_truncated
+                if not matched:
+                    issue(
+                        "schema_one_of",
+                        "value does not satisfy exactly one branch",
+                        private_path if private_path is not None else path,
+                    )
                 return
             if schema.kind in ("union", "one_of"):
                 original_issues, original_truncated = issues, truncated
@@ -357,7 +435,7 @@ class OutputSchema:
                 for branch in branches:
                     issues, truncated = [], False
                     try:
-                        visit(branch, current, path)
+                        visit(branch, current, path, private_path)
                         matched = not issues
                     finally:
                         issues, truncated = original_issues, original_truncated
@@ -368,9 +446,17 @@ class OutputSchema:
                 if schema.kind == "one_of":
                     if matches == 1:
                         return
-                    issue("schema_one_of", "value does not satisfy exactly one branch", path)
+                    issue(
+                        "schema_one_of",
+                        "value does not satisfy exactly one branch",
+                        private_path if private_path is not None else path,
+                    )
                 else:
-                    issue("schema_any_of", "value does not satisfy any union branch", path)
+                    issue(
+                        "schema_any_of",
+                        "value does not satisfy any union branch",
+                        private_path if private_path is not None else path,
+                    )
                 return
             if not schema._matches(current):
                 issue("schema_type", f"expected {schema.kind}", path)
@@ -402,9 +488,15 @@ class OutputSchema:
                         issue("schema_required", "required property is absent", (*path, key))
                 for key, child in current.items():
                     if key in schema.properties:
-                        visit(schema.properties[key], child, (*path, key))
+                        visit(schema.properties[key], child, (*path, key), private_path)
                     elif type(schema.additional_properties) is OutputSchema:
-                        visit(schema.additional_properties, child, (*path, key))
+                        # Combination errors beneath an undeclared key stay at its declared parent.
+                        visit(
+                            schema.additional_properties,
+                            child,
+                            (*path, key),
+                            path if private_path is None else private_path,
+                        )
                     elif not schema.additional_properties:
                         issue("schema_extra", "undeclared property", (*path, key))
             elif isinstance(current, list):
@@ -418,7 +510,7 @@ class OutputSchema:
                             raise OutputContractError("schema evaluation work limit exceeded")
                         issue("schema_extra_item", "undeclared array position", (*path, index))
                     else:
-                        visit(item_schema, child, (*path, index))
+                        visit(item_schema, child, (*path, index), private_path)
 
         visit(self, document, path)
         if truncated:
