@@ -191,24 +191,27 @@ def load_output_schema(
                     return build(definitions[name], depth + 1, (*path, "$ref"))
                 finally:
                     active_definitions.remove(name)
-            if "anyOf" in node:
-                require_keys(node, {"$schema", "anyOf", "$defs"} if not path else {"anyOf"}, path)
-                branches = node["anyOf"]
+            if "anyOf" in node or "oneOf" in node:
+                keyword = "anyOf" if "anyOf" in node else "oneOf"
+                require_keys(node, {"$schema", keyword, "$defs"} if not path else {keyword}, path)
+                branches = node[keyword]
                 if (
                     type(branches) is not list
                     or not 2 <= len(branches) <= active_limits.max_branches
                 ):
                     raise _definition_error(
                         "schema_definition_branches",
-                        "anyOf requires a bounded list of 2..16 schemas",
+                        f"{keyword} requires a bounded list of 2..16 schemas",
                         path,
                     )
+                compiled = tuple(
+                    build(branch, depth + 1, (*path, keyword, index))
+                    for index, branch in enumerate(branches)
+                )
                 return OutputSchema(
-                    "union",
-                    any_of=tuple(
-                        build(branch, depth + 1, (*path, "anyOf", index))
-                        for index, branch in enumerate(branches)
-                    ),
+                    "union" if keyword == "anyOf" else "one_of",
+                    any_of=compiled if keyword == "anyOf" else (),
+                    one_of=compiled if keyword == "oneOf" else (),
                 )
             kind = node.get("type")
             if type(kind) is list:
@@ -231,7 +234,7 @@ def load_output_schema(
             if type(kind) is not str or kind not in _KINDS:
                 raise _definition_error(
                     "schema_definition_type",
-                    "an explicit supported type or anyOf is required",
+                    "an explicit supported type, anyOf or oneOf is required",
                     path,
                 )
             allowed = {"$schema", "type", "enum", "const"}

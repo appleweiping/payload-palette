@@ -25,11 +25,24 @@ silently ignores unknown or inapplicable keywords.
 | `type: array` | Explicit schema-valued or false `items`, optional positional `prefixItems`, `minItems`, `maxItems` |
 | `type: object` | `properties`, `required`, boolean or schema-valued `additionalProperties` |
 | `anyOf` | 2–16 explicit schema branches; only root `$schema`/`$defs` may accompany it |
+| `oneOf` | 2–16 explicit schema branches; exactly one must accept, and only root `$schema`/`$defs` may accompany it |
 | `type: [...]` | 1–7 unique unconstrained scalar/object types; only root `$schema`/`$defs` may accompany it |
 | root `$defs` + `$ref` | At most 256 named local definitions; references name one definition with a JSON Pointer token |
 
 Type lists normalize to branches. Arrays still require explicit `items`, so nullable arrays
-use `anyOf`, not a bare array in a type list. Put branch-specific constraints inside `anyOf`.
+use `anyOf` or `oneOf`, not a bare array in a type list. Put branch-specific constraints inside
+the combination's branches. `anyOf` accepts the first matching branch; `oneOf` evaluates every
+branch and rejects both zero matches and overlap with the same `schema_one_of` issue at the
+candidate path. Branch-local errors and undeclared object keys do not enter that issue.
+Run `python examples/one_of_schema.py` for an offline exact-one/local-reference roundtrip.
+
+The optional independent oracle lane is
+`python -m pytest tests_optional/test_one_of_jsonschema.py -q`
+with `jsonschema` installed (verified locally with 4.23.0). This file is outside
+the default test paths, so ordinary suites need no oracle package and have no
+oracle skip; Payload gains no runtime dependency. The 24
+disjoint, overlapping, zero-match and local-reference comparisons include 10
+accepted and 14 rejected values against `Draft202012Validator`.
 Scalar enums contain 1–256 unique values matching their declared type. `const` normalizes to a
 singleton enum; enum and const together are rejected. Required names must be declared properties.
 These are deliberate restrictions even where broader JSON Schema permits another formulation.
@@ -64,7 +77,7 @@ Run `python examples/local_schema_definitions.py` for a complete offline reuse/e
 
 The only accepted root `$schema` URI is `https://json-schema.org/draft/2020-12/schema`. It identifies
 the source keyword semantics, not a claim to implement the complete dialect. Nested dialects,
-general boolean schemas, empty schemas, external/deep/recursive references, `oneOf`, `allOf`, discriminators,
+general boolean schemas, empty schemas, external/deep/recursive references, `allOf`, discriminators,
 regex/format, dependent conditions, arbitrary extensions and custom vocabulary are
 rejected. Resource/finite-number restrictions also remain part of Payload's runtime contract.
 The specific `items: false` form closes the suffix after any declared prefix; it is not general
@@ -151,24 +164,27 @@ Callers may lower them, with depth 0 permitting only a leaf definition and at le
 branches. Each repeated shared child counts again. Annotation compiler visits (including metadata)
 and its final expanded schema are both checked. Object properties and enums additionally cap at
 256 entries, property names at 256 characters and enum strings at 2048 characters.
+Both `anyOf` and `oneOf` expansion, including local reference targets, count against the same
+definition node/depth/character budgets.
 
 `OutputLimits.max_schema_steps` defaults to 100,000, with a hard ceiling of 1,000,000. Every visited
-schema/value pair consumes one step, shared across candidate union branches in a validation pass;
-failed branches cannot reset work. Budget exhaustion raises `OutputContractError`, never a success
-or ordinary union mismatch. Existing JSON depth/nodes/characters and issue limits still apply.
+schema/value pair consumes one step, shared across candidate branches in a validation pass;
+`oneOf` keeps counting even after a first match, because later overlap must be detected. Budget
+exhaustion raises `OutputContractError`, never a success or ordinary branch mismatch. Existing
+JSON depth/nodes/characters and issue limits still apply.
 Pipeline initial/final validations each have their own schema-work pass; callback budgets remain
 separate. There is no wall-clock preemption of local Python schema execution.
 
 ## Pipeline and generation behavior
 
-A binding path is configured successfully only if it is possible in at least one union branch.
+A binding path is configured successfully only if it is possible in at least one `anyOf` or `oneOf` branch.
 At runtime it skips a genuinely absent optional/alternative path. It cannot silently bypass a typo
 in a closed object or descend below a known scalar or typed map scalar. Unknown open-object shapes
 remain explicitly permissive. Repairs still undergo complete final schema and semantic validation:
 switching a union's valid branch does not waive other applicable final rules.
 
 Generation sends the portable schema projection as a hint and validates locally afterward. Re-ask
-feedback permits only paths declared in the schema (including union branches); arbitrary keys in
+feedback permits only paths declared in the schema (including combination branches); arbitrary keys in
 open/typed maps remain redacted to `$`. Schema importing does not import a validator pipeline or
 provider configuration. Cross-engine corpus/performance equivalence and whole-reference repository
 parity remain open, as recorded in [the reference assessment](parity-validation.md).

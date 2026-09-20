@@ -98,6 +98,14 @@ def test_schema_roundtrip_preserves_typed_maps_unions_and_immutable_snapshots() 
     assert load_output_schema({"type": ["string"]}).kind == "string"
 
 
+def test_one_of_import_accepts_supported_exact_one_document() -> None:
+    schema = load_output_schema(
+        {"oneOf": [{"type": "integer"}, {"type": "string", "minLength": 2}]}
+    )
+    assert schema.validate(1) == ()
+    assert schema.validate("ok") == ()
+
+
 @pytest.mark.parametrize(
     "document",
     [

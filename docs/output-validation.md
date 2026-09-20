@@ -10,7 +10,8 @@ python examples/validate_model_output.py
 
 ## Schema contract
 
-`OutputSchema` accepts `null`, `boolean`, `integer`, `number`, `string`, `array`, `object`, and `union`.
+`OutputSchema` accepts `null`, `boolean`, `integer`, `number`, `string`, `array`, `object`, `union`,
+and `one_of`.
 There is no implicit coercion. By default, booleans are not numbers, `1.0` is not an integer,
 and `"0.8"` is not a number. Numbers must be finite. Integers have at most 850 magnitude bits
 (a conservative bound compatible with the ingress integer-length limit).
@@ -27,6 +28,11 @@ types, inapplicable constraints, reversed bounds, undeclared/duplicate required 
 more than 4096 expanded nodes, or more than one million characters in expanded names and enum values.
 Unions use 2–16 `any_of` alternatives; `nullable()` adds a null alternative. A successful alternative
 accepts the value; failed branch errors collapse to `schema_any_of`. Candidate work shares one budget.
+Exact-one schemas use 2–16 `one_of` alternatives and require precisely one successful branch.
+They inspect every branch under that same budget, even after a first success. Zero or multiple
+matches collapse to one `schema_one_of` issue without exposing branch failures. Calling
+`nullable()` on an exact-one schema wraps it in a union; a null branch within the exact-one
+schema alone does not guarantee null acceptance when another branch also accepts null.
 The [runtime schema/type API](runtime-schema-types.md) adds strict supported-keyword import/export
 and trusted annotation compilation. Imported integer schemas use JSON Schema's mathematical integer
 semantics and accept integral floats; direct Python schemas remain strict by default.
@@ -50,7 +56,7 @@ configuration errors. This prevents misspelled bindings from silently bypassing 
 An undeclared member of an object with `additional_properties=True` has unknown shape, so syntactically
 valid paths below it are allowed and skip when the actual shape does not contain the target. Declared
 properties remain checked even on an open object. Typed additional properties are path-checked,
-and a union path must be possible in at least one alternative. There is no wildcard selection.
+and a union or exact-one path must be possible in at least one alternative. There is no wildcard selection.
 
 Return `RuleResult(True)` to accept. Return `RuleResult(False, code, message)` to fail, optionally
 providing a fourth `fix` argument. Failures require lowercase stable identifiers and bounded messages.
@@ -98,7 +104,7 @@ these records to a telemetry service.
 | Total characters in strings and object keys | 1,000,000 | 8,000,000 |
 | Stored validation issues | 100 | 1,000 |
 | Callback invocations, all phases combined | 1,000 | 10,000 |
-| Schema/value steps, shared across union branches per validation pass | 100,000 | 1,000,000 |
+| Schema/value steps, shared across all combination branches per validation pass | 100,000 | 1,000,000 |
 | Pipeline bindings | 256 | 256 |
 
 Each snapshot accepts only exact built-in JSON scalar/list/dict types. It rejects cycles, custom

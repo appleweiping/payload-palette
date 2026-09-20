@@ -14,7 +14,7 @@ from payload_palette.errors import ValidationIssue
 JSONScalar: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 SchemaKind: TypeAlias = Literal[
-    "null", "boolean", "integer", "number", "string", "array", "object", "union"
+    "null", "boolean", "integer", "number", "string", "array", "object", "union", "one_of"
 ]
 OutputPath: TypeAlias = tuple[str | int, ...]
 
@@ -147,6 +147,7 @@ class OutputSchema:
     any_of: tuple[OutputSchema, ...] = ()
     integer_mode: Literal["strict", "json"] = "strict"
     prefix_items: tuple[OutputSchema, ...] | None = None
+    one_of: tuple[OutputSchema, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.integer_mode) is not str or self.integer_mode not in ("strict", "json"):
@@ -162,6 +163,7 @@ class OutputSchema:
             "array",
             "object",
             "union",
+            "one_of",
         ):
             raise ValueError("unsupported schema kind")
         if type(self.any_of) is not tuple or any(
@@ -172,6 +174,14 @@ class OutputSchema:
             self.kind != "union" and self.any_of
         ):
             raise ValueError("only union schemas require 2..16 any_of branches")
+        if type(self.one_of) is not tuple or any(
+            type(branch) is not OutputSchema for branch in self.one_of
+        ):
+            raise ValueError("one_of must be a tuple of OutputSchema branches")
+        if (self.kind == "one_of" and not 2 <= len(self.one_of) <= 16) or (
+            self.kind != "one_of" and self.one_of
+        ):
+            raise ValueError("only one_of schemas require 2..16 one_of branches")
         if type(self.properties) not in (dict, MappingProxyType) or len(self.properties) > 256:
             raise ValueError("properties must be a mapping with at most 256 entries")
         if any(
@@ -228,7 +238,7 @@ class OutputSchema:
         if self.enum is not None and (
             type(self.enum) is not tuple
             or not 1 <= len(self.enum) <= 256
-            or self.kind in ("object", "array", "union")
+            or self.kind in ("object", "array", "union", "one_of")
             or any(type(item) is str and len(item) > 2_048 for item in self.enum)
             or any(not self._matches(item) for item in self.enum)
         ):
@@ -254,11 +264,14 @@ class OutputSchema:
             if type(schema.additional_properties) is OutputSchema:
                 stack.append((schema.additional_properties, depth + 1))
             stack.extend((branch, depth + 1) for branch in schema.any_of)
+            stack.extend((branch, depth + 1) for branch in schema.one_of)
 
     def nullable(self) -> OutputSchema:
         """Return a schema accepting this contract or JSON null."""
 
-        if self.kind == "null" or any(branch.kind == "null" for branch in self.any_of):
+        if self.kind == "null" or (
+            self.kind == "union" and any(branch.kind == "null" for branch in self.any_of)
+        ):
             return self
         return OutputSchema("union", any_of=(self, OutputSchema("null")))
 
@@ -313,9 +326,11 @@ class OutputSchema:
             work.steps += 1
             if work.steps > active_limits.max_schema_steps:
                 raise OutputContractError("schema evaluation work limit exceeded")
-            if schema.kind == "union":
+            if schema.kind in ("union", "one_of"):
                 original_issues, original_truncated = issues, truncated
-                for branch in schema.any_of:
+                matches = 0
+                branches = schema.any_of if schema.kind == "union" else schema.one_of
+                for branch in branches:
                     issues, truncated = [], False
                     try:
                         visit(branch, current, path)
@@ -323,8 +338,15 @@ class OutputSchema:
                     finally:
                         issues, truncated = original_issues, original_truncated
                     if matched:
+                        matches += 1
+                        if schema.kind == "union":
+                            return
+                if schema.kind == "one_of":
+                    if matches == 1:
                         return
-                issue("schema_any_of", "value does not satisfy any union branch", path)
+                    issue("schema_one_of", "value does not satisfy exactly one branch", path)
+                else:
+                    issue("schema_any_of", "value does not satisfy any union branch", path)
                 return
             if not schema._matches(current):
                 issue("schema_type", f"expected {schema.kind}", path)
@@ -397,6 +419,13 @@ class OutputSchema:
                     for branch in self.any_of
                 ]
             }
+        if self.kind == "one_of":
+            return {
+                "oneOf": [
+                    branch.json_schema(preserve_python_types=preserve_python_types)
+                    for branch in self.one_of
+                ]
+            }
         result: dict[str, JSONValue] = {"type": self.kind}
         if self.kind == "integer" and self.integer_mode == "strict" and preserve_python_types:
             result["x-payload-strict-integer"] = True
@@ -458,14 +487,14 @@ def _limits(limits: OutputLimits | None) -> OutputLimits:
 def _schema_path_possible(
     schema: OutputSchema, path: OutputPath, *, allow_dynamic: bool = True
 ) -> bool:
-    """Check existence in at least one union alternative without inspecting output values."""
+    """Check existence in at least one combination branch without inspecting values."""
 
     if not path:
         return True
-    if schema.kind == "union":
+    if schema.kind in ("union", "one_of"):
+        branches = schema.any_of if schema.kind == "union" else schema.one_of
         return any(
-            _schema_path_possible(branch, path, allow_dynamic=allow_dynamic)
-            for branch in schema.any_of
+            _schema_path_possible(branch, path, allow_dynamic=allow_dynamic) for branch in branches
         )
     segment, remaining = path[0], path[1:]
     if schema.kind == "object" and type(segment) is str:
