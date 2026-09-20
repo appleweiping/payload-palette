@@ -191,27 +191,35 @@ def load_output_schema(
                     return build(definitions[name], depth + 1, (*path, "$ref"))
                 finally:
                     active_definitions.remove(name)
-            if "anyOf" in node or "oneOf" in node:
-                keyword = "anyOf" if "anyOf" in node else "oneOf"
-                require_keys(node, {"$schema", keyword, "$defs"} if not path else {keyword}, path)
-                branches = node[keyword]
+            if any(keyword in node for keyword in ("anyOf", "oneOf", "allOf")):
+                combination = next(
+                    keyword for keyword in ("anyOf", "oneOf", "allOf") if keyword in node
+                )
+                require_keys(
+                    node, {"$schema", combination, "$defs"} if not path else {combination}, path
+                )
+                branches = node[combination]
                 if (
                     type(branches) is not list
                     or not 2 <= len(branches) <= active_limits.max_branches
                 ):
                     raise _definition_error(
                         "schema_definition_branches",
-                        f"{keyword} requires a bounded list of 2..16 schemas",
+                        f"{combination} requires a bounded list of 2..16 schemas",
                         path,
                     )
                 compiled = tuple(
-                    build(branch, depth + 1, (*path, keyword, index))
+                    build(branch, depth + 1, (*path, combination, index))
                     for index, branch in enumerate(branches)
                 )
                 return OutputSchema(
-                    "union" if keyword == "anyOf" else "one_of",
-                    any_of=compiled if keyword == "anyOf" else (),
-                    one_of=compiled if keyword == "oneOf" else (),
+                    cast(
+                        SchemaKind,
+                        {"anyOf": "union", "oneOf": "one_of", "allOf": "all_of"}[combination],
+                    ),
+                    any_of=compiled if combination == "anyOf" else (),
+                    one_of=compiled if combination == "oneOf" else (),
+                    all_of=compiled if combination == "allOf" else (),
                 )
             kind = node.get("type")
             if type(kind) is list:
@@ -234,7 +242,7 @@ def load_output_schema(
             if type(kind) is not str or kind not in _KINDS:
                 raise _definition_error(
                     "schema_definition_type",
-                    "an explicit supported type, anyOf or oneOf is required",
+                    "an explicit supported type, anyOf, oneOf or allOf is required",
                     path,
                 )
             allowed = {"$schema", "type", "enum", "const"}

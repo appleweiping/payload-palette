@@ -264,6 +264,7 @@ def _check_schema(schema: OutputSchema) -> None:
             or type(current.required) is not tuple
             or type(current.any_of) is not tuple
             or type(current.one_of) is not tuple
+            or type(current.all_of) is not tuple
             or type(current.kind) is not str
             or type(current.integer_mode) is not str
             or (current.enum is not None and type(current.enum) is not tuple)
@@ -289,6 +290,7 @@ def _check_schema(schema: OutputSchema) -> None:
         stack.extend((child, depth + 1) for child in current.properties.values())
         stack.extend((child, depth + 1) for child in current.any_of)
         stack.extend((child, depth + 1) for child in current.one_of)
+        stack.extend((child, depth + 1) for child in current.all_of)
         stack.extend((child, depth + 1) for child in current.prefix_items or ())
         if current.items is not None:
             stack.append((current.items, depth + 1))

@@ -11,7 +11,7 @@ python examples/validate_model_output.py
 ## Schema contract
 
 `OutputSchema` accepts `null`, `boolean`, `integer`, `number`, `string`, `array`, `object`, `union`,
-and `one_of`.
+`one_of`, and `all_of`.
 There is no implicit coercion. By default, booleans are not numbers, `1.0` is not an integer,
 and `"0.8"` is not a number. Numbers must be finite. Integers have at most 850 magnitude bits
 (a conservative bound compatible with the ingress integer-length limit).
@@ -33,6 +33,11 @@ They inspect every branch under that same budget, even after a first success. Ze
 matches collapse to one `schema_one_of` issue without exposing branch failures. Calling
 `nullable()` on an exact-one schema wraps it in a union; a null branch within the exact-one
 schema alone does not guarantee null acceptance when another branch also accepts null.
+Intersection schemas use 2–16 `all_of` branches and require every branch to accept the same
+unmodified value. All branches consume the shared schema-work budget, even after an earlier
+failure. Branch-local failures collapse to one `schema_all_of` issue at the candidate path.
+Closed object branches retain their own `additionalProperties` checks; their property maps are
+never merged. See the [runtime `allOf` example](runtime-schema-types.md#schema-data-contract).
 The [runtime schema/type API](runtime-schema-types.md) adds strict supported-keyword import/export
 and trusted annotation compilation. Imported integer schemas use JSON Schema's mathematical integer
 semantics and accept integral floats; direct Python schemas remain strict by default.
@@ -56,7 +61,8 @@ configuration errors. This prevents misspelled bindings from silently bypassing 
 An undeclared member of an object with `additional_properties=True` has unknown shape, so syntactically
 valid paths below it are allowed and skip when the actual shape does not contain the target. Declared
 properties remain checked even on an open object. Typed additional properties are path-checked,
-and a union or exact-one path must be possible in at least one alternative. There is no wildcard selection.
+and a union or exact-one path must be possible in at least one alternative. An intersection path
+must be possible in every branch. There is no wildcard selection.
 
 Return `RuleResult(True)` to accept. Return `RuleResult(False, code, message)` to fail, optionally
 providing a fourth `fix` argument. Failures require lowercase stable identifiers and bounded messages.

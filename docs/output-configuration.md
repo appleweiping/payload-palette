@@ -61,6 +61,8 @@ Rules require `id`, `path`, and `validator`; `on_fail` defaults to `reject`. Ide
 indices: keys contain at most 256 Unicode scalar characters; indices range from 0 through 99,999.
 An empty path selects the root. No wildcard or string-path parser is used. Impossible schema paths
 fail during compilation; possible absent optional/alternative paths skip during validation.
+An `allOf` path must be possible in every intersection branch; one closed-object branch can
+therefore reject a path declared by another.
 
 Only these exact built-ins have a data representation:
 
